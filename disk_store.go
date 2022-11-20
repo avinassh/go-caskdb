@@ -1,6 +1,10 @@
 package caskdb
 
 import (
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"time"
 )
@@ -15,11 +19,16 @@ type DiskStore struct {
 }
 
 func NewDiskStore(fileName string) *DiskStore {
+	ds := &DiskStore{fileName: fileName, keyDir: make(map[string]KeyEntry)}
+	if _, err := os.Stat(fileName); err == nil || errors.Is(err, fs.ErrExist) {
+		ds.initKeyDir()
+	}
 	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		panic(err)
 	}
-	return &DiskStore{fileName, file, 0, make(map[string]KeyEntry)}
+	ds.file = file
+	return ds
 }
 
 func (d *DiskStore) Get(key string) string {
@@ -31,8 +40,8 @@ func (d *DiskStore) Get(key string) string {
 	d.file.Seek(int64(kv.position), defaultWhence)
 	data := make([]byte, kv.totalSize)
 	// TODO: handle errors
-	n, err := d.file.Read(data)
-	if n != int(kv.totalSize) || err != nil {
+	_, err := io.ReadFull(d.file, data)
+	if err != nil {
 		panic("read error")
 	}
 	_, _, value := decodeKV(data)
@@ -67,6 +76,35 @@ func (d *DiskStore) write(data []byte) {
 	d.file.Sync()
 }
 
-func (d *DiskStore) name() {
-
+func (d *DiskStore) initKeyDir() {
+	file, _ := os.Open(d.fileName)
+	defer file.Close()
+	for {
+		header := make([]byte, headerSize)
+		_, err := io.ReadFull(file, header)
+		if err == io.EOF {
+			break
+		}
+		// TODO: handle errors
+		if err != nil {
+			break
+		}
+		timestamp, keySize, valueSize := decodeHeader(header)
+		key := make([]byte, keySize)
+		value := make([]byte, valueSize)
+		_, err = io.ReadFull(file, key)
+		// TODO: handle errors
+		if err != nil {
+			break
+		}
+		_, err = io.ReadFull(file, value)
+		// TODO: handle errors
+		if err != nil {
+			break
+		}
+		totalSize := headerSize + keySize + valueSize
+		d.keyDir[string(key)] = NewKeyEntry(timestamp, uint32(d.writePosition), totalSize)
+		d.writePosition += int(totalSize)
+		fmt.Printf("loaded key=%s, value=%s\n", key, value)
+	}
 }
