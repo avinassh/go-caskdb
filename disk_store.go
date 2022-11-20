@@ -12,23 +12,22 @@ import (
 const defaultWhence = 0
 
 type DiskStore struct {
-	fileName      string
 	file          *os.File
 	writePosition int
 	keyDir        map[string]KeyEntry
 }
 
-func NewDiskStore(fileName string) *DiskStore {
-	ds := &DiskStore{fileName: fileName, keyDir: make(map[string]KeyEntry)}
+func NewDiskStore(fileName string) (*DiskStore, error) {
+	ds := &DiskStore{keyDir: make(map[string]KeyEntry)}
 	if _, err := os.Stat(fileName); err == nil || errors.Is(err, fs.ErrExist) {
-		ds.initKeyDir()
+		ds.initKeyDir(fileName)
 	}
 	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	ds.file = file
-	return ds
+	return ds, nil
 }
 
 func (d *DiskStore) Get(key string) string {
@@ -76,8 +75,8 @@ func (d *DiskStore) write(data []byte) {
 	d.file.Sync()
 }
 
-func (d *DiskStore) initKeyDir() {
-	file, _ := os.Open(d.fileName)
+func (d *DiskStore) initKeyDir(existingFile string) {
+	file, _ := os.Open(existingFile)
 	defer file.Close()
 	for {
 		header := make([]byte, headerSize)

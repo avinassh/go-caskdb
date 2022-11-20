@@ -6,7 +6,10 @@ import (
 )
 
 func TestDiskStore_Get(t *testing.T) {
-	store := NewDiskStore("test.db")
+	store, err := NewDiskStore("test.db")
+	if err != nil {
+		t.Fatalf("failed to create disk store: %v", err)
+	}
 	defer os.Remove("test.db")
 	store.Set("name", "jojo")
 	if val := store.Get("name"); val != "jojo" {
@@ -15,7 +18,10 @@ func TestDiskStore_Get(t *testing.T) {
 }
 
 func TestDiskStore_GetInvalid(t *testing.T) {
-	store := NewDiskStore("test.db")
+	store, err := NewDiskStore("test.db")
+	if err != nil {
+		t.Fatalf("failed to create disk store: %v", err)
+	}
 	defer os.Remove("test.db")
 	if val := store.Get("some key"); val != "" {
 		t.Errorf("Get() = %v, want %v", val, "")
@@ -23,7 +29,10 @@ func TestDiskStore_GetInvalid(t *testing.T) {
 }
 
 func TestDiskStore_SetWithPersistence(t *testing.T) {
-	store := NewDiskStore("test.db")
+	store, err := NewDiskStore("test.db")
+	if err != nil {
+		t.Fatalf("failed to create disk store: %v", err)
+	}
 	defer os.Remove("test.db")
 
 	tests := map[string]string{
@@ -42,7 +51,10 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 		}
 	}
 	store.Close()
-	store = NewDiskStore("test.db")
+	store, err = NewDiskStore("test.db")
+	if err != nil {
+		t.Fatalf("failed to create disk store: %v", err)
+	}
 	for key, val := range tests {
 		if store.Get(key) != val {
 			t.Errorf("Get() = %v, want %v", store.Get(key), val)
@@ -52,7 +64,10 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 }
 
 func TestDiskStore_Delete(t *testing.T) {
-	store := NewDiskStore("test.db")
+	store, err := NewDiskStore("test.db")
+	if err != nil {
+		t.Fatalf("failed to create disk store: %v", err)
+	}
 	defer os.Remove("test.db")
 
 	tests := map[string]string{
@@ -73,7 +88,10 @@ func TestDiskStore_Delete(t *testing.T) {
 	store.Set("end", "yes")
 	store.Close()
 
-	store = NewDiskStore("test.db")
+	store, err = NewDiskStore("test.db")
+	if err != nil {
+		t.Fatalf("failed to create disk store: %v", err)
+	}
 	for key := range tests {
 		if store.Get(key) != "" {
 			t.Errorf("Get() = %v, want '' (empty)", store.Get(key))
