@@ -2,7 +2,7 @@
 # CaskDB - Disk based Log Structured Hash Table Store
 
 ![made-with-go](https://img.shields.io/badge/Made%20with-Go-1f425f.svg)
-[![build](https://github.com/avinassh/py-caskdb/actions/workflows/build.yml/badge.svg)](https://github.com/avinassh/py-caskdb/actions/workflows/build.yml)
+[![build](https://github.com/avinassh/py-caskdb/actions/workflows/build.yml/badge.svg)](https://github.com/avinassh/go-caskdb/actions/workflows/build.yml)
 [![codecov](https://codecov.io/gh/avinassh/py-caskdb/branch/master/graph/badge.svg?token=9SA8Q4L7AZ)](https://codecov.io/gh/avinassh/py-caskdb)
 [![MIT license](https://camo.githubusercontent.com/f7358a0a5a91ec17974d36c9d426073a0ac67a958b22319be1ba5aa32542c28d/68747470733a2f2f62616467656e2e6e65742f6769746875622f6c6963656e73652f4e61657265656e2f5374726170646f776e2e6a73)](https://github.com/avinassh/go-caskdb/blob/master/LICENSE)
 [![twitter@iavins](https://img.shields.io/twitter/follow/iavins?style=social)](https://twitter.com/iavins)
