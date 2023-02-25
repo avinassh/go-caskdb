@@ -36,8 +36,6 @@ package caskdb
 //    func encodeKV(timestamp uint32, key string, value string) (int, []byte)
 //    func decodeKV(data []byte) (uint32, string, string)
 
-import "encoding/binary"
-
 // headerSize specifies the total header size. Our key value pair, when stored on disk
 // looks like this:
 //
@@ -67,45 +65,24 @@ const headerSize = 12
 // the byte offset in the file. Whenever we insert/update a key, we create a new
 // KeyEntry object and insert that into keyDir.
 type KeyEntry struct {
-	// Timestamp at which we wrote the KV pair to the disk. The value
-	// is current time in seconds since the epoch.
-	timestamp uint32
-	// The position is the byte offset in the file where the data
-	// exists
-	position uint32
-	// Total size of bytes of the value. We use this value to know
-	// how many bytes we need to read from the file
-	totalSize uint32
 }
 
 func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) KeyEntry {
-	return KeyEntry{timestamp, position, totalSize}
+	panic("implement me")
 }
 
 func encodeHeader(timestamp uint32, keySize uint32, valueSize uint32) []byte {
-	header := make([]byte, headerSize)
-	binary.LittleEndian.PutUint32(header[0:4], timestamp)
-	binary.LittleEndian.PutUint32(header[4:8], keySize)
-	binary.LittleEndian.PutUint32(header[8:12], valueSize)
-	return header
+	panic("implement me")
 }
 
 func decodeHeader(header []byte) (uint32, uint32, uint32) {
-	timestamp := binary.LittleEndian.Uint32(header[0:4])
-	keySize := binary.LittleEndian.Uint32(header[4:8])
-	valueSize := binary.LittleEndian.Uint32(header[8:12])
-	return timestamp, keySize, valueSize
+	panic("implement me")
 }
 
 func encodeKV(timestamp uint32, key string, value string) (int, []byte) {
-	header := encodeHeader(timestamp, uint32(len(key)), uint32(len(value)))
-	data := append([]byte(key), []byte(value)...)
-	return headerSize + len(data), append(header, data...)
+	panic("implement me")
 }
 
 func decodeKV(data []byte) (uint32, string, string) {
-	timestamp, keySize, valueSize := decodeHeader(data[0:headerSize])
-	key := string(data[headerSize : headerSize+keySize])
-	value := string(data[headerSize+keySize : headerSize+keySize+valueSize])
-	return timestamp, key, value
+	panic("implement me")
 }
