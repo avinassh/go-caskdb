@@ -104,7 +104,7 @@ func (d *DiskStore) Get(key string) string {
 	//
 	// How get works?
 	//	1. Check if there is any KeyEntry record for the key in keyDir
-	//	2. Return an empty string if key doesn't exist
+	//	2. Return an empty string if key doesn't exist or if the key has been deleted
 	//	3. If it exists, then read KeyEntry.totalSize bytes starting from the
 	//     KeyEntry.position from the disk
 	//	4. Decode the bytes into valid KV pair and return the value
@@ -122,7 +122,16 @@ func (d *DiskStore) Get(key string) string {
 	if err != nil {
 		panic("read error")
 	}
-	_, _, value := decodeKV(data)
+	checkSum, _, _, value := decodeKV(data)
+	//check if checkSum matches and we dont have any corrupt value
+	if !verifyCheckSum(value, checkSum) {
+		return "corrupted value"
+	}
+
+	//check if its tombestone value
+	if string(value) == TombStoneVal {
+		return TombStoneVal
+	}
 	return value
 }
 
@@ -138,6 +147,16 @@ func (d *DiskStore) Set(key string, value string) {
 	d.write(data)
 	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), uint32(size))
 	// update last write position, so that next record can be written from this point
+	d.writePosition += size
+}
+
+func (d *DiskStore) Delete(key string) {
+	// for delete operation, simply write a special tombstone value
+	timestamp := uint32(time.Now().Unix())
+	size, data := encodeKV(timestamp, key, TombStoneVal)
+	d.write(data)
+	// key is already present, it will update with our new value
+	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), uint32(size))
 	d.writePosition += size
 }
 
@@ -188,7 +207,7 @@ func (d *DiskStore) initKeyDir(existingFile string) {
 		if err != nil {
 			break
 		}
-		timestamp, keySize, valueSize := decodeHeader(header)
+		_, timestamp, keySize, valueSize := decodeHeader(header)
 		key := make([]byte, keySize)
 		value := make([]byte, valueSize)
 		_, err = io.ReadFull(file, key)
