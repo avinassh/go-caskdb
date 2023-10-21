@@ -1,10 +1,12 @@
 package caskdb
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"time"
 )
@@ -98,7 +100,7 @@ func NewDiskStore(fileName string) (*DiskStore, error) {
 	return ds, nil
 }
 
-func (d *DiskStore) Get(key string) string {
+func (d *DiskStore) Get(key string) (string, error) {
 	// Get retrieves the value from the disk and returns. If the key does not
 	// exist then it returns an empty string
 	//
@@ -111,53 +113,138 @@ func (d *DiskStore) Get(key string) string {
 	//
 	kEntry, ok := d.keyDir[key]
 	if !ok {
-		return ""
+		return "", ErrKeyNotExist
 	}
 	// move the current pointer to the right offset
-	// TODO: handle errors
-	d.file.Seek(int64(kEntry.position), defaultWhence)
-	data := make([]byte, kEntry.totalSize)
-	// TODO: handle errors
-	_, err := io.ReadFull(d.file, data)
+	_, err := d.file.Seek(int64(kEntry.position), defaultWhence)
 	if err != nil {
-		panic("read error")
+		return "", ErrSeekFailed
 	}
-	checkSum, _, _, value := decodeKV(data)
+
+	data := make([]byte, kEntry.totalSize)
+	_, err = io.ReadFull(d.file, data)
+	if err != nil {
+		return "", ErrReadFailed
+	}
+
+	result := &Record{}
+	err = result.DecodeKV(data)
+	if err != nil {
+		return "", ErrDecodingFailed
+	}
+
+	//check for expiry
+	if result.IsExpired() {
+		return "", ErrKeyNotFound
+	}
+
 	//check if checkSum matches and we dont have any corrupt value
-	if !verifyCheckSum(value, checkSum) {
-		return "corrupted value"
+	if !result.VerifyCheckSum() {
+		return "", ErrKeyValueCorrupted
 	}
 
 	//check if its tombestone value
-	if string(value) == TombStoneVal {
-		return TombStoneVal
+	if string(result.Value) == TombStoneVal {
+		return TombStoneVal, ErrKeyNotFound
 	}
-	return value
+
+	return result.Value, nil
 }
 
-func (d *DiskStore) Set(key string, value string) {
+func (d *DiskStore) Set(key string, value string) error {
 	// Set stores the key and value on the disk
 	//
 	// The steps to save a KV to disk is simple:
 	// 1. Encode the KV into bytes
 	// 2. Write the bytes to disk by appending to the file
 	// 3. Update KeyDir with the KeyEntry of this key
-	timestamp := uint32(time.Now().Unix())
-	size, data := encodeKV(timestamp, key, value)
-	d.write(data)
-	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), uint32(size))
+
+	//prepare header
+	h := Header{
+		TimeStamp: uint32(time.Now().Unix()),
+		KeySize:   uint32(len(key)),
+		ValueSize: uint32(len(value)),
+	}
+	h.CheckSum = h.CalculateCheckSum(value)
+
+	//prepare kv record
+	r := &Record{
+		Header: h,
+		Key:    key,
+		Value:  value,
+	}
+	buf := new(bytes.Buffer)
+	err := r.EncodeKV(buf)
+	if err != nil {
+		return ErrEncodingFailed
+	}
+
+	d.write(buf.Bytes())
+	size := headerSize + h.KeySize + h.ValueSize
+	d.keyDir[key] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), size)
 	// update last write position, so that next record can be written from this point
-	d.writePosition += size
+	d.writePosition += int(size)
+	return nil
 }
 
-func (d *DiskStore) Delete(key string) {
+func (d *DiskStore) SetX(key string, value string, expiry time.Duration) error {
+	// Set but with expiry
+
+	//prepare header
+	h := Header{
+		TimeStamp: uint32(time.Now().Unix()),
+		KeySize:   uint32(len(key)),
+		ValueSize: uint32(len(value)),
+	}
+	h.CheckSum = h.CalculateCheckSum(value)
+	h.ExpiryTime = uint32(time.Now().Add(expiry).Unix())
+
+	//prepare kv record
+	r := &Record{
+		Header: h,
+		Key:    key,
+		Value:  value,
+	}
+	buf := new(bytes.Buffer)
+	err := r.EncodeKV(buf)
+	if err != nil {
+		return ErrEncodingFailed
+	}
+
+	d.write(buf.Bytes())
+	size := headerSize + h.KeySize + h.ValueSize
+	d.keyDir[key] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), size)
+	// update last write position, so that next record can be written from this point
+	d.writePosition += int(size)
+	return nil
+}
+
+func (d *DiskStore) Delete(key string) error {
 	// for delete operation, simply write a special tombstone value
-	timestamp := uint32(time.Now().Unix())
-	size, data := encodeKV(timestamp, key, TombStoneVal)
-	d.write(data)
+	h := Header{
+		TimeStamp: uint32(time.Now().Unix()),
+		KeySize:   uint32(len(key)),
+		ValueSize: uint32(len(TombStoneVal)),
+	}
+	h.CheckSum = h.CalculateCheckSum(TombStoneVal)
+	r := &Record{
+		Header: h,
+		Key:    key,
+		Value:  TombStoneVal,
+	}
+	buf := new(bytes.Buffer)
+	err := r.EncodeKV(buf)
+	if err != nil {
+		return ErrEncodingFailed
+	}
+
+	d.write(buf.Bytes())
+	size := headerSize + h.KeySize + h.ValueSize
 	// key is already present, it will update with our new value
-	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), uint32(size))
-	d.writePosition += size
+	d.keyDir[key] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), size)
+	d.writePosition += int(size)
+
+	return nil
 }
 
 func (d *DiskStore) Close() bool {
@@ -203,25 +290,25 @@ func (d *DiskStore) initKeyDir(existingFile string) {
 		if err == io.EOF {
 			break
 		}
-		// TODO: handle errors
 		if err != nil {
-			break
+			log.Fatalf("error while reading from the file: %v", err)
 		}
-		_, timestamp, keySize, valueSize := decodeHeader(header)
-		key := make([]byte, keySize)
-		value := make([]byte, valueSize)
+		h := &Header{}
+		h.DecodeHeader(header)
+		key := make([]byte, h.KeySize)
+		value := make([]byte, h.ValueSize)
+
 		_, err = io.ReadFull(file, key)
-		// TODO: handle errors
 		if err != nil {
-			break
+			log.Fatalf("error while reading the key: %v", err)
 		}
+
 		_, err = io.ReadFull(file, value)
-		// TODO: handle errors
 		if err != nil {
-			break
+			log.Fatalf("error while reading the value: %v", err)
 		}
-		totalSize := headerSize + keySize + valueSize
-		d.keyDir[string(key)] = NewKeyEntry(timestamp, uint32(d.writePosition), totalSize)
+		totalSize := headerSize + h.KeySize + h.ValueSize
+		d.keyDir[string(key)] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), totalSize)
 		d.writePosition += int(totalSize)
 		fmt.Printf("loaded key=%s, value=%s\n", key, value)
 	}

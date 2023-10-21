@@ -3,6 +3,7 @@ package caskdb
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestDiskStore_Get(t *testing.T) {
@@ -12,7 +13,7 @@ func TestDiskStore_Get(t *testing.T) {
 	}
 	defer os.Remove("test.db")
 	store.Set("name", "jojo")
-	if val := store.Get("name"); val != "jojo" {
+	if val, _ := store.Get("name"); val != "jojo" {
 		t.Errorf("Get() = %v, want %v", val, "jojo")
 	}
 }
@@ -23,7 +24,7 @@ func TestDiskStore_GetInvalid(t *testing.T) {
 		t.Fatalf("failed to create disk store: %v", err)
 	}
 	defer os.Remove("test.db")
-	if val := store.Get("some key"); val != "" {
+	if val, _ := store.Get("some key"); val != "" {
 		t.Errorf("Get() = %v, want %v", val, "")
 	}
 }
@@ -46,18 +47,30 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 	}
 	for key, val := range tests {
 		store.Set(key, val)
-		if store.Get(key) != val {
-			t.Errorf("Get() = %v, want %v", store.Get(key), val)
+		actualVal, _ := store.Get(key)
+		if actualVal != val {
+			t.Errorf("Get() = %v, want %v", actualVal, val)
 		}
 	}
+	store.SetX("expire", "value", 2*time.Second)
 	store.Close()
+
 	store, err = NewDiskStore("test.db")
 	if err != nil {
 		t.Fatalf("failed to create disk store: %v", err)
 	}
 	for key, val := range tests {
-		if store.Get(key) != val {
-			t.Errorf("Get() = %v, want %v", store.Get(key), val)
+		actualVal, _ := store.Get(key)
+		if actualVal != val {
+			t.Errorf("Get() = %v, want %v", actualVal, val)
+		}
+	}
+	//check for expired key
+	time.Sleep(3 * time.Second)
+	_, err = store.Get("expire")
+	if err != nil {
+		if err != ErrKeyNotFound {
+			t.Error("expected key to be expired")
 		}
 	}
 	store.Close()
@@ -98,7 +111,7 @@ func TestDiskStore_Delete(t *testing.T) {
 
 	//check for deletion
 	for _, dkeys := range deletedKeys {
-		actualVal := store.Get(dkeys)
+		actualVal, _ := store.Get(dkeys)
 		if actualVal != TombStoneVal {
 			t.Errorf("Get() = %s, want %s", actualVal, TombStoneVal)
 		}

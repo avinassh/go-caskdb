@@ -24,10 +24,11 @@ func main() {
 
 	//yeet lando
 	store.Delete("mclaren")
-	val := store.Get("mclaren")
-	if val == caskDB.TombStoneVal {
+	_, err = store.Get("mclaren")
+	if err != nil && err == caskDB.ErrKeyNotFound {
 		fmt.Println("mclaren dropped lando norris for good!")
 	}
 
-	fmt.Printf("%s drives for redbull racing!", store.Get("redbull"))
+	val, _ := store.Get("redbull")
+	fmt.Printf("%s drives for redbull racing!", val)
 }
