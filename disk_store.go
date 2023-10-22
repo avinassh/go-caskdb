@@ -3,7 +3,6 @@ package caskdb
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -310,6 +309,49 @@ func (d *DiskStore) initKeyDir(existingFile string) {
 		totalSize := headerSize + h.KeySize + h.ValueSize
 		d.keyDir[string(key)] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), totalSize)
 		d.writePosition += int(totalSize)
-		fmt.Printf("loaded key=%s, value=%s\n", key, value)
 	}
+}
+
+func (d *DiskStore) ListKeys(existingFile string) <-chan Record {
+	// read k,v one by one in the chan
+	file, _ := os.Open(existingFile)
+	result := make(chan Record)
+
+	go func(file *os.File) {
+		for {
+			header := make([]byte, headerSize)
+			_, err := io.ReadFull(file, header)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				log.Fatalf("error while reading from the file: %v", err)
+			}
+			h := &Header{}
+			h.DecodeHeader(header)
+			key := make([]byte, h.KeySize)
+			value := make([]byte, h.ValueSize)
+
+			_, err = io.ReadFull(file, key)
+			if err != nil {
+				log.Fatalf("error while reading the key: %v", err)
+			}
+
+			_, err = io.ReadFull(file, value)
+			if err != nil {
+				log.Fatalf("error while reading the value: %v", err)
+			}
+
+			r := Record{
+				Key:   string(key),
+				Value: string(value),
+			}
+			result <- r
+		}
+
+		close(result)
+		file.Close()
+	}(file)
+
+	return result
 }

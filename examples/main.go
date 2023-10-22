@@ -29,6 +29,8 @@ func main() {
 		fmt.Println("mclaren dropped lando norris for good!")
 	}
 
-	val, _ := store.Get("redbull")
-	fmt.Printf("%s drives for redbull racing!", val)
+	fmt.Println("Current kv pairs:")
+	for record := range store.ListKeys("test.db") {
+		fmt.Printf("key:%s, value:%s\n", record.Key, record.Value)
+	}
 }
