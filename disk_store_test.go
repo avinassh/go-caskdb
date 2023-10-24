@@ -1,6 +1,7 @@
 package caskdb
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -36,14 +37,14 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 	}
 	defer os.Remove("test.db")
 
-	tests := map[string]string{
+	tests := map[string]interface{}{
 		"crime and punishment": "dostoevsky",
 		"anna karenina":        "tolstoy",
-		"war and peace":        "tolstoy",
 		"hamlet":               "shakespeare",
-		"othello":              "shakespeare",
-		"brave new world":      "huxley",
-		"dune":                 "frank herbert",
+		"floatval":             2121.2123,
+		"boolval":              true,
+		"runeval":              UglyRune('&'),
+		"intval":               -12.212,
 	}
 	for key, val := range tests {
 		store.Set(key, val)
@@ -52,7 +53,16 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 			t.Errorf("Get() = %v, want %v", actualVal, val)
 		}
 	}
-	store.SetX("expire", "value", 2*time.Second)
+	type Person struct {
+		Name string
+		Age  int
+	}
+	p := &Person{
+		Name: "Sebastian Vettel",
+		Age:  36,
+	}
+	bytes, _ := json.Marshal(p)
+	store.Set("mystruct", bytes)
 	store.Close()
 
 	store, err = NewDiskStore("test.db")
@@ -65,6 +75,19 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 			t.Errorf("Get() = %v, want %v", actualVal, val)
 		}
 	}
+
+	store.SetX("expire", -120.212, 2*time.Second)
+
+	value, _ := store.Get("mystruct")
+	mystruct := &Person{}
+	err = json.Unmarshal(value.([]byte), mystruct)
+	if err != nil {
+		t.Fatalf("couldn't unmarshal struct types: %v", err)
+	}
+	if mystruct.Age != p.Age && mystruct.Name != p.Name {
+		t.Errorf("Get() = %v, want %v", value.(*Person), p)
+	}
+
 	//check for expired key
 	time.Sleep(3 * time.Second)
 	_, err = store.Get("expire")

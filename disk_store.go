@@ -99,7 +99,7 @@ func NewDiskStore(fileName string) (*DiskStore, error) {
 	return ds, nil
 }
 
-func (d *DiskStore) Get(key string) (string, error) {
+func (d *DiskStore) Get(key string) (interface{}, error) {
 	// Get retrieves the value from the disk and returns. If the key does not
 	// exist then it returns an empty string
 	//
@@ -127,8 +127,12 @@ func (d *DiskStore) Get(key string) (string, error) {
 	}
 
 	result := &Record{}
-	err = result.DecodeKV(data)
+	result.DecodeKV(data)
+
+	//decode value
+	value, err := result.DecodeValue()
 	if err != nil {
+		log.Fatalf("error in decoding the value: %v", err)
 		return "", ErrDecodingFailed
 	}
 
@@ -143,14 +147,14 @@ func (d *DiskStore) Get(key string) (string, error) {
 	}
 
 	//check if its tombestone value
-	if string(result.Value) == TombStoneVal {
+	if value == TombStoneVal {
 		return TombStoneVal, ErrKeyNotFound
 	}
 
-	return result.Value, nil
+	return value, nil
 }
 
-func (d *DiskStore) Set(key string, value string) error {
+func (d *DiskStore) Set(key string, value interface{}) error {
 	// Set stores the key and value on the disk
 	//
 	// The steps to save a KV to disk is simple:
@@ -158,61 +162,69 @@ func (d *DiskStore) Set(key string, value string) error {
 	// 2. Write the bytes to disk by appending to the file
 	// 3. Update KeyDir with the KeyEntry of this key
 
-	//prepare header
+	//prepare kv record
 	h := Header{
 		TimeStamp: uint32(time.Now().Unix()),
 		KeySize:   uint32(len(key)),
-		ValueSize: uint32(len(value)),
 	}
-	h.CheckSum = h.CalculateCheckSum(value)
-
-	//prepare kv record
 	r := &Record{
 		Header: h,
 		Key:    key,
-		Value:  value,
 	}
-	buf := new(bytes.Buffer)
-	err := r.EncodeKV(buf)
+	err := r.EncodeValue(value)
 	if err != nil {
+		log.Fatalf("error in encoding value: %v", err)
+		return ErrInvalidValue
+	}
+	r.Header.ValueSize = uint32(len(r.Value))
+	r.Header.CheckSum = r.Header.CalculateCheckSum(r.Value)
+
+	buf := bytes.NewBuffer(make([]byte, headerSize))
+	err = r.EncodeKV(buf)
+	if err != nil {
+		log.Fatalf("error in encoding kv record: %v", err)
 		return ErrEncodingFailed
 	}
 
 	d.write(buf.Bytes())
-	size := headerSize + h.KeySize + h.ValueSize
-	d.keyDir[key] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), size)
+	size := headerSize + r.Header.KeySize + r.Header.ValueSize
+	d.keyDir[key] = NewKeyEntry(r.Header.TimeStamp, uint32(d.writePosition), size)
 	// update last write position, so that next record can be written from this point
 	d.writePosition += int(size)
 	return nil
 }
 
-func (d *DiskStore) SetX(key string, value string, expiry time.Duration) error {
+func (d *DiskStore) SetX(key string, value interface{}, expiry time.Duration) error {
 	// Set but with expiry
 
-	//prepare header
+	//prepare  kv record
 	h := Header{
 		TimeStamp: uint32(time.Now().Unix()),
 		KeySize:   uint32(len(key)),
-		ValueSize: uint32(len(value)),
 	}
-	h.CheckSum = h.CalculateCheckSum(value)
-	h.ExpiryTime = uint32(time.Now().Add(expiry).Unix())
-
-	//prepare kv record
 	r := &Record{
 		Header: h,
 		Key:    key,
-		Value:  value,
 	}
-	buf := new(bytes.Buffer)
-	err := r.EncodeKV(buf)
+	err := r.EncodeValue(value)
 	if err != nil {
+		log.Fatalf("error in encoding the value: %v", err)
+		return ErrInvalidValue
+	}
+	r.Header.ValueSize = uint32(len(r.Value))
+	r.Header.CheckSum = r.Header.CalculateCheckSum(r.Value)
+	r.Header.ExpiryTime = uint32(time.Now().Add(expiry).Unix())
+
+	buf := bytes.NewBuffer(make([]byte, headerSize))
+	err = r.EncodeKV(buf)
+	if err != nil {
+		log.Fatalf("error in encoding kv record: %v", err)
 		return ErrEncodingFailed
 	}
 
 	d.write(buf.Bytes())
-	size := headerSize + h.KeySize + h.ValueSize
-	d.keyDir[key] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), size)
+	size := headerSize + r.Header.KeySize + r.Header.ValueSize
+	d.keyDir[key] = NewKeyEntry(r.Header.TimeStamp, uint32(d.writePosition), size)
 	// update last write position, so that next record can be written from this point
 	d.writePosition += int(size)
 	return nil
@@ -223,24 +235,30 @@ func (d *DiskStore) Delete(key string) error {
 	h := Header{
 		TimeStamp: uint32(time.Now().Unix()),
 		KeySize:   uint32(len(key)),
-		ValueSize: uint32(len(TombStoneVal)),
 	}
-	h.CheckSum = h.CalculateCheckSum(TombStoneVal)
 	r := &Record{
 		Header: h,
 		Key:    key,
-		Value:  TombStoneVal,
 	}
-	buf := new(bytes.Buffer)
-	err := r.EncodeKV(buf)
+	err := r.EncodeValue(TombStoneVal)
 	if err != nil {
+		log.Fatalf("error in encoding the value: %v", err)
+		return ErrInvalidValue
+	}
+	r.Header.ValueSize = uint32(len(r.Value))
+	r.Header.CheckSum = r.Header.CalculateCheckSum(r.Value)
+
+	buf := bytes.NewBuffer(make([]byte, headerSize))
+	err = r.EncodeKV(buf)
+	if err != nil {
+		log.Fatalf("error in encoding the kv record: %v", err)
 		return ErrEncodingFailed
 	}
 
 	d.write(buf.Bytes())
-	size := headerSize + h.KeySize + h.ValueSize
+	size := headerSize + r.Header.KeySize + r.Header.ValueSize
 	// key is already present, it will update with our new value
-	d.keyDir[key] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), size)
+	d.keyDir[key] = NewKeyEntry(r.Header.TimeStamp, uint32(d.writePosition), size)
 	d.writePosition += int(size)
 
 	return nil
@@ -300,12 +318,15 @@ func (d *DiskStore) initKeyDir(existingFile string) {
 		_, err = io.ReadFull(file, key)
 		if err != nil {
 			log.Fatalf("error while reading the key: %v", err)
+			break
 		}
 
 		_, err = io.ReadFull(file, value)
 		if err != nil {
 			log.Fatalf("error while reading the value: %v", err)
+			break
 		}
+
 		totalSize := headerSize + h.KeySize + h.ValueSize
 		d.keyDir[string(key)] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), totalSize)
 		d.writePosition += int(totalSize)
@@ -335,16 +356,19 @@ func (d *DiskStore) ListKeys(existingFile string) <-chan Record {
 			_, err = io.ReadFull(file, key)
 			if err != nil {
 				log.Fatalf("error while reading the key: %v", err)
+				break
 			}
 
 			_, err = io.ReadFull(file, value)
 			if err != nil {
 				log.Fatalf("error while reading the value: %v", err)
+				break
 			}
 
 			r := Record{
-				Key:   string(key),
-				Value: string(value),
+				Header: *h,
+				Key:    string(key),
+				Value:  value,
 			}
 			result <- r
 		}

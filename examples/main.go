@@ -18,8 +18,8 @@ func main() {
 	defer os.Remove("test.db")
 
 	store.Set("screwderia", "charles leclrec") // cause ferrari screws everyone
-	store.Set("redbull", "max verstappen")
-	store.Set("mercedes", "lewis hamilton")
+	store.Set("age", 36)
+	store.Set("IsValid", true)
 	store.Set("mclaren", "lando norris")
 
 	//yeet lando
@@ -31,6 +31,12 @@ func main() {
 
 	fmt.Println("Current kv pairs:")
 	for record := range store.ListKeys("test.db") {
-		fmt.Printf("key:%s, value:%s\n", record.Key, record.Value)
+		value, err := record.DecodeValue()
+		if err != nil {
+			fmt.Printf("error in decoding the value: %v", err)
+			continue
+		}
+		fmt.Printf("key:%s, value:%v\n", record.Key, value)
 	}
+
 }

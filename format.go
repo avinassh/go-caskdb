@@ -46,29 +46,28 @@ import (
 // headerSize specifies the total header size. Our key value pair, when stored on disk
 // looks like this:
 //
-//	┌────────┬─────────────┬──────────┬───────────┬────────────┬───────┬─────────┐
-//	|   crc  │ timestamp   │ expiry   | key_size  │ value_size │ key   │ value   │
-//	└────────┴─────────────┴──────────┴───────────┴────────────┴───────┴─────────┴
+//	┌────────┬─────────────┬──────────┬───────────┬────────────┬─────────────┬─────────┬─────────┐
+//	|   crc  │ timestamp   │ expiry   | key_size  │ value_size │  value_type │   key   │  value  |
+//	└────────┴─────────────┴──────────┴───────────┴────────────┴─────────────┴─────────┴─────────┴
 //
 // This is analogous to a typical database's row (or a record). The total length of
 // the row is variable, depending on the contents of the key and value.
 //
-// The first five fields form the header:
+// The first six fields form the header:
 //
-//	┌────────────┬──────────────┬─────────────┬────────────────┐────────────────┐
-//	|   crc(4B)  │ timestamp(4B)│ expiry(4B)  | key_size(4B)   │ value_size(4B) │
-//	└────────────┴──────────────┴─────────────┘────────────────┘────────────────┘
+//	┌────────────┬──────────────┬─────────────┬────────────────┐────────────────┐────────────────┐
+//	|   crc(4B)  │ timestamp(4B)│ expiry(4B)  | key_size(4B)   │ value_size(4B) │ value_type(4B) |
+//	└────────────┴──────────────┴─────────────┘────────────────┘────────────────┘────────────────┘
 //
-// These four fields store unsigned integers of size 4 bytes, giving our header a
-// fixed length of 16 bytes.
+// These six fields store unsigned integers of size 4 bytes, giving our header a fixed length of 24 bytes.
 // crc(CheckSum) field stores the checksum to verify if the stored value is valid or not.
 // Timestamp field stores the time the record we inserted in unix epoch seconds.
 // Expiry field stores the time after which the record will expiry.
-// Key size and Value size fields store the length of bytes occupied by the key and value. The maximum integer
-// stored by 4 bytes is 4,294,967,295 (2 ** 32 - 1), roughly ~4.2GB. So, the size of
-// each key or value cannot exceed this. Theoretically, a single row can be as large
-// as ~8.4GB.
-const headerSize = 20
+// Key size and Value size fields store the length of bytes occupied by the key and value.
+//
+// The maximum integer stored by 4 bytes is 4,294,967,295 (2 ** 32 - 1), roughly ~4.2GB.
+// So, the size ofeach key or value cannot exceed this. Theoretically, a single row can be as large as ~8.4GB.
+const headerSize = 24
 
 // For deletion we will write a special "tombstone" value instead of actually deleting the key or storing this in the header.
 const TombStoneVal = "tombstone"
@@ -86,6 +85,8 @@ type KeyEntry struct {
 	// Total size of bytes of the value. We use this value to know
 	// how many bytes we need to read from the file
 	totalSize uint32
+
+	// have another field called file id which tells from which file to read from after we have one active and many old data files
 }
 
 type Header struct {
@@ -94,46 +95,56 @@ type Header struct {
 	TimeStamp  uint32
 	KeySize    uint32
 	ValueSize  uint32
+	ValueType  ValTypeID
 }
 
 type Record struct {
 	Header Header
 	Key    string
-	Value  string
+	Value  []byte
 }
 
 func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) KeyEntry {
 	return KeyEntry{timestamp, position, totalSize}
 }
 
-func (h *Header) EncodeHeader(buf *bytes.Buffer) error {
-	return binary.Write(buf, binary.LittleEndian, h)
+func (h *Header) EncodeHeader(buf []byte) {
+	binary.LittleEndian.PutUint32(buf[0:4], h.CheckSum)
+	binary.LittleEndian.PutUint32(buf[4:8], h.ExpiryTime)
+	binary.LittleEndian.PutUint32(buf[8:12], h.TimeStamp)
+	binary.LittleEndian.PutUint32(buf[12:16], h.KeySize)
+	binary.LittleEndian.PutUint32(buf[16:20], h.ValueSize)
+	binary.LittleEndian.PutUint32(buf[20:24], uint32(h.ValueType))
 }
 
-func (h *Header) DecodeHeader(buf []byte) error {
-	return binary.Read(bytes.NewReader(buf), binary.LittleEndian, h)
+func (h *Header) DecodeHeader(buf []byte) {
+	h.CheckSum = binary.LittleEndian.Uint32(buf[0:4])
+	h.ExpiryTime = binary.LittleEndian.Uint32(buf[4:8])
+	h.TimeStamp = binary.LittleEndian.Uint32(buf[8:12])
+	h.KeySize = binary.LittleEndian.Uint32(buf[12:16])
+	h.ValueSize = binary.LittleEndian.Uint32(buf[16:20])
+	h.ValueType = ValTypeID(binary.LittleEndian.Uint32(buf[20:24]))
 }
 
-func (h *Header) CalculateCheckSum(value string) uint32 {
-	return crc32.ChecksumIEEE([]byte(value))
+func (h *Header) CalculateCheckSum(value []byte) uint32 {
+	return crc32.ChecksumIEEE(value)
 }
 
 func (r *Record) EncodeKV(buf *bytes.Buffer) error {
-	err := r.Header.EncodeHeader(buf)
+	r.Header.EncodeHeader(buf.Bytes())
 	buf.WriteString(r.Key)
-	buf.WriteString(r.Value)
+	_, err := buf.Write(r.Value)
 	return err
 }
 
-func (r *Record) DecodeKV(buf []byte) error {
-	err := r.Header.DecodeHeader(buf[:headerSize])
+func (r *Record) DecodeKV(buf []byte) {
+	r.Header.DecodeHeader(buf[:headerSize])
 	r.Key = string(buf[headerSize : headerSize+r.Header.KeySize])
-	r.Value = string(buf[headerSize+r.Header.KeySize : headerSize+r.Header.KeySize+r.Header.ValueSize])
-	return err
+	r.Value = buf[headerSize+r.Header.KeySize : headerSize+r.Header.KeySize+r.Header.ValueSize]
 }
 
 func (r *Record) VerifyCheckSum() bool {
-	return crc32.ChecksumIEEE([]byte(r.Value)) == r.Header.CheckSum
+	return crc32.ChecksumIEEE(r.Value) == r.Header.CheckSum
 }
 
 func (r *Record) IsExpired() bool {

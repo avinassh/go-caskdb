@@ -10,4 +10,5 @@ var (
 	ErrDecodingFailed    = errors.New("decoding fail: failed to decode kv record")
 	ErrSeekFailed        = errors.New("see fail: failed to seek to the correct offset")
 	ErrReadFailed        = errors.New("read fail: failed to read data from disk")
+	ErrInvalidValue      = errors.New("invalid value: trying to store unsupported value")
 )
