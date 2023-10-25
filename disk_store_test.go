@@ -85,7 +85,7 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 		t.Fatalf("couldn't unmarshal struct types: %v", err)
 	}
 	if mystruct.Age != p.Age && mystruct.Name != p.Name {
-		t.Errorf("Get() = %v, want %v", value.(*Person), p)
+		t.Errorf("Get() = %v, want %v", mystruct, p)
 	}
 
 	//check for expired key

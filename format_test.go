@@ -2,11 +2,14 @@ package caskdb
 
 import (
 	"bytes"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 )
+
+type RecordValueTest struct {
+	record      *Record
+	expectedVal interface{}
+}
 
 func Test_encodeHeader(t *testing.T) {
 	tests := []*Header{
@@ -43,6 +46,37 @@ func Test_encodeHeader(t *testing.T) {
 	}
 }
 
+func Test_encodeValue(t *testing.T) {
+	tests := []*RecordValueTest{
+		{expectedVal: "h^loz4z5z6&#@)(-)", record: &Record{Header: Header{}, Key: "key1"}},
+		{expectedVal: UglyRune('%'), record: &Record{Header: Header{}, Key: "key2"}},
+		{expectedVal: -768, record: &Record{Header: Header{}, Key: "key3"}},
+		{expectedVal: int8(-122), record: &Record{Header: Header{}, Key: "key4"}},
+		{expectedVal: int16(21221), record: &Record{Header: Header{}, Key: "key5"}},
+		{expectedVal: int32(-9088012), record: &Record{Header: Header{}, Key: "key6"}},
+		{expectedVal: int64(768812212221212), record: &Record{Header: Header{}, Key: "key7"}},
+		{expectedVal: 8012, record: &Record{Header: Header{}, Key: "key8"}},
+		{expectedVal: uint8(78), record: &Record{Header: Header{}, Key: "key9"}},
+		{expectedVal: uint16(7890), record: &Record{Header: Header{}, Key: "key10"}},
+		{expectedVal: uint32(1234556666), record: &Record{Header: Header{}, Key: "key11"}},
+		{expectedVal: uint64(9073221213214324323), record: &Record{Header: Header{}, Key: "key12"}},
+		{expectedVal: float32(-82120.12242), record: &Record{Header: Header{}, Key: "key13"}},
+		{expectedVal: float64(768800.127908797433230001111121), record: &Record{Header: Header{}, Key: "key14"}},
+		{expectedVal: true, record: &Record{Header: Header{}, Key: "key15"}},
+	}
+
+	for _, tt := range tests {
+		tt.record.EncodeValue(tt.expectedVal)
+
+		actualVal, _ := tt.record.DecodeValue()
+
+		if actualVal != tt.expectedVal {
+			t.Errorf("Error while encoding/decoding, Got: %v, Want: %v", actualVal, tt.expectedVal)
+		}
+
+	}
+}
+
 func Test_encodeKV(t *testing.T) {
 	//prepare record
 	k1, v1 := "hello", UglyRune('%')
@@ -50,8 +84,7 @@ func Test_encodeKV(t *testing.T) {
 	r1 := Record{Header: h1, Key: k1}
 	err := r1.EncodeValue(v1)
 	if err != nil {
-		fmt.Println("Err in encoding the value", err)
-		os.Exit(-1)
+		t.Errorf("Err in encoding the value: %v", err)
 	}
 	r1.Header.ValueSize = uint32(len(r1.Value))
 	r1.Header.CheckSum = r1.Header.CalculateCheckSum(r1.Value)
@@ -61,8 +94,7 @@ func Test_encodeKV(t *testing.T) {
 	r2 := Record{Header: h2, Key: k2}
 	err = r2.EncodeValue(v2)
 	if err != nil {
-		fmt.Println("Err in encoding the value", err)
-		os.Exit(-1)
+		t.Errorf("Err in encoding the value: %v", err)
 	}
 	r2.Header.ValueSize = uint32(len(r2.Value))
 	r2.Header.CheckSum = r2.Header.CalculateCheckSum(r2.Value)
@@ -72,8 +104,7 @@ func Test_encodeKV(t *testing.T) {
 	r3 := Record{Header: h3, Key: k3}
 	err = r3.EncodeValue(v3)
 	if err != nil {
-		fmt.Println("Err in encoding the value", err)
-		os.Exit(-1)
+		t.Errorf("Err in encoding the value: %v", err)
 	}
 	r3.Header.ValueSize = uint32(len(r3.Value))
 	r3.Header.CheckSum = r3.Header.CalculateCheckSum(r3.Value)
@@ -106,13 +137,11 @@ func Test_encodeKV(t *testing.T) {
 
 		actualVal, err := result.DecodeValue()
 		if err != nil {
-			fmt.Println("error while decoding actual value", err)
-			os.Exit(-1)
+			t.Errorf("Err in encoding the value: %v", err)
 		}
 		expVal, err := tt.DecodeValue()
 		if err != nil {
-			fmt.Println("error while decoding expected value", err)
-			os.Exit(-1)
+			t.Errorf("Err in encoding the value: %v", err)
 		}
 		if actualVal != expVal {
 			t.Errorf("encodeKV() value = %v, want %v", result.Value, tt.Value)

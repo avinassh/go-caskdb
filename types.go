@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
-	"fmt"
 	"unicode/utf8"
 )
 
@@ -232,22 +231,4 @@ func (r *Record) DecodeValue() (interface{}, error) {
 	default:
 		return nil, ErrInvalidValue
 	}
-
-}
-
-// naive way of differentiating between rune and int32
-// encode rune, decode rune and check if both match, if not then its int32 value
-func isRune(val interface{}) (bool, error) {
-	buf := new(bytes.Buffer)
-	_, err := buf.WriteRune(val.(rune))
-	if err != nil {
-		fmt.Printf("error in encoding a rune: %v", err)
-		return false, err
-	}
-	r, _ := utf8.DecodeRune(buf.Bytes())
-	fmt.Println("huhh rune???", string(r))
-	if string(val.(rune)) == string(r) {
-		return true, nil
-	}
-	return false, nil
 }

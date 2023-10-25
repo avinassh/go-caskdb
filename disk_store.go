@@ -269,9 +269,12 @@ func (d *DiskStore) Close() bool {
 	// to the disk. Check documentation of DiskStore.write() to understand
 	// following the operations
 	// TODO: handle errors
-	d.file.Sync()
+	err := d.file.Sync()
+	if err != nil {
+		log.Fatalf("error while doing a fsync: %v", err)
+	}
 	if err := d.file.Close(); err != nil {
-		// TODO: log the error
+		log.Printf("error in closing the file: %v", err)
 		return false
 	}
 	return true
