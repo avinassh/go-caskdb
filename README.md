@@ -119,5 +119,8 @@ $ tokei -f format.go disk_store.go
 ===============================================================================
 ```
 
+## Contributing
+All contributions are welcome. Please check [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
+
 ## License
 The MIT license. Please check `LICENSE` for more details.
