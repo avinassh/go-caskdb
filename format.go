@@ -66,7 +66,7 @@ import (
 const headerSize = 12
 
 // For deletion we will write a special "tombstone" value instead of actually deleting the key or storing this in the header.
-const TombStoneVal = "tombstone"
+const TombStoneVal = ""
 
 // KeyEntry keeps the metadata about the KV, specially the position of
 // the byte offset in the file. Whenever we insert/update a key, we create a new

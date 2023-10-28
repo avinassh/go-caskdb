@@ -148,12 +148,7 @@ func (d *DiskStore) Set(key string, value string) {
 
 func (d *DiskStore) Delete(key string) {
 	// for delete operation, simply write a special tombstone value
-	timestamp := uint32(time.Now().Unix())
-	size, data := encodeKV(timestamp, key, TombStoneVal)
-	d.write(data)
-	// key is already present, it will update with our new value
-	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), uint32(size))
-	d.writePosition += size
+	d.Set(key, TombStoneVal)
 }
 
 func (d *DiskStore) Close() bool {
