@@ -122,11 +122,7 @@ func (d *DiskStore) Get(key string) string {
 	if err != nil {
 		panic("read error")
 	}
-	checkSum, _, _, value := decodeKV(data)
-	//check if checkSum matches and we dont have any corrupt value
-	if !verifyCheckSum(value, checkSum) {
-		return "corrupted value"
-	}
+	_, _, value := decodeKV(data)
 
 	//check if its tombestone value
 	if string(value) == TombStoneVal {
@@ -207,7 +203,7 @@ func (d *DiskStore) initKeyDir(existingFile string) {
 		if err != nil {
 			break
 		}
-		_, timestamp, keySize, valueSize := decodeHeader(header)
+		timestamp, keySize, valueSize := decodeHeader(header)
 		key := make([]byte, keySize)
 		value := make([]byte, valueSize)
 		_, err = io.ReadFull(file, key)

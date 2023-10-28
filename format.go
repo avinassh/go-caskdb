@@ -38,34 +38,32 @@ package caskdb
 
 import (
 	"encoding/binary"
-	"hash/crc32"
 )
 
 // headerSize specifies the total header size. Our key value pair, when stored on disk
 // looks like this:
 //
-//	┌────────┬─────────────┬───────────┬────────────┬───────┬─────────┐
-//	|   crc  │ timestamp   │ key_size  │ value_size │ key   │ value   │
-//	└────────┴─────────────┴───────────┴────────────┴───────┴─────────┴
+//	┌───────────┬──────────┬────────────┬─────┬───────┐
+//	│ timestamp │ key_size │ value_size │ key │ value │
+//	└───────────┴──────────┴────────────┴─────┴───────┘
 //
 // This is analogous to a typical database's row (or a record). The total length of
 // the row is variable, depending on the contents of the key and value.
 //
-// The first four fields form the header:
+// The first three fields form the header:
 //
-//	┌────────────┬──────────────┬────────────────┐────────────────┐
-//	|   crc(4B)  │ timestamp(4B)│ key_size(4B)   │ value_size(4B) │
-//	└────────────┴──────────────┴────────────────┘────────────────┘
+//	┌───────────────┬──────────────┬────────────────┐
+//	│ timestamp(4B) │ key_size(4B) │ value_size(4B) │
+//	└───────────────┴──────────────┴────────────────┘
 //
-// These four fields store unsigned integers of size 4 bytes, giving our header a
-// fixed length of 16 bytes.
-// crc(CheckSum) field stores the checksum to verify if the stored value is valid or not.
-// Timestamp field stores the time the record we inserted in unix epoch seconds.
-// Key size and value size fields store the length of bytes occupied by the key and value. The maximum integer
+// These three fields store unsigned integers of size 4 bytes, giving our header a
+// fixed length of 12 bytes. Timestamp field stores the time the record we
+// inserted in unix epoch seconds. Key size and value size fields store the length of
+// bytes occupied by the key and value. The maximum integer
 // stored by 4 bytes is 4,294,967,295 (2 ** 32 - 1), roughly ~4.2GB. So, the size of
 // each key or value cannot exceed this. Theoretically, a single row can be as large
 // as ~8.4GB.
-const headerSize = 16
+const headerSize = 12
 
 // For deletion we will write a special "tombstone" value instead of actually deleting the key or storing this in the header.
 const TombStoneVal = "tombstone"
@@ -89,40 +87,30 @@ func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) KeyEntry {
 	return KeyEntry{timestamp, position, totalSize}
 }
 
-func encodeHeader(crc uint32, timestamp uint32, keySize uint32, valueSize uint32) []byte {
+func encodeHeader(timestamp uint32, keySize uint32, valueSize uint32) []byte {
 	header := make([]byte, headerSize)
-	binary.LittleEndian.PutUint32(header[0:4], crc)
-	binary.LittleEndian.PutUint32(header[4:8], timestamp)
-	binary.LittleEndian.PutUint32(header[8:12], keySize)
-	binary.LittleEndian.PutUint32(header[12:16], valueSize)
+	binary.LittleEndian.PutUint32(header[0:4], timestamp)
+	binary.LittleEndian.PutUint32(header[4:8], keySize)
+	binary.LittleEndian.PutUint32(header[8:12], valueSize)
 	return header
 }
 
-func decodeHeader(header []byte) (uint32, uint32, uint32, uint32) {
-	checkSum := binary.LittleEndian.Uint32(header[0:4])
-	timestamp := binary.LittleEndian.Uint32(header[4:8])
-	keySize := binary.LittleEndian.Uint32(header[8:12])
-	valueSize := binary.LittleEndian.Uint32(header[12:16])
-	return checkSum, timestamp, keySize, valueSize
+func decodeHeader(header []byte) (uint32, uint32, uint32) {
+	timestamp := binary.LittleEndian.Uint32(header[0:4])
+	keySize := binary.LittleEndian.Uint32(header[4:8])
+	valueSize := binary.LittleEndian.Uint32(header[8:12])
+	return timestamp, keySize, valueSize
 }
 
 func encodeKV(timestamp uint32, key string, value string) (int, []byte) {
-	header := encodeHeader(calculateCheckSum(value), timestamp, uint32(len(key)), uint32(len(value)))
+	header := encodeHeader(timestamp, uint32(len(key)), uint32(len(value)))
 	data := append([]byte(key), []byte(value)...)
 	return headerSize + len(data), append(header, data...)
 }
 
-func decodeKV(data []byte) (uint32, uint32, string, string) {
-	checkSum, timestamp, keySize, valueSize := decodeHeader(data[0:headerSize])
+func decodeKV(data []byte) (uint32, string, string) {
+	timestamp, keySize, valueSize := decodeHeader(data[0:headerSize])
 	key := string(data[headerSize : headerSize+keySize])
 	value := string(data[headerSize+keySize : headerSize+keySize+valueSize])
-	return checkSum, timestamp, key, value
-}
-
-func calculateCheckSum(value string) uint32 {
-	return crc32.ChecksumIEEE([]byte(value))
-}
-
-func verifyCheckSum(value string, checkSum uint32) bool {
-	return crc32.ChecksumIEEE([]byte(value)) == checkSum
+	return timestamp, key, value
 }

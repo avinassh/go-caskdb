@@ -6,22 +6,17 @@ import (
 
 func Test_encodeHeader(t *testing.T) {
 	tests := []struct {
-		checkSum  uint32
 		timestamp uint32
 		keySize   uint32
 		valueSize uint32
 	}{
-		{10, 10, 10, 10},
-		{0, 0, 0, 0},
-		{10000, 10000, 10000, 10000},
+		{10, 10, 10},
+		{0, 0, 0},
+		{10000, 10000, 10000},
 	}
 	for _, tt := range tests {
-		data := encodeHeader(tt.checkSum, tt.timestamp, tt.keySize, tt.valueSize)
-		checkSum, timestamp, keySize, valueSize := decodeHeader(data)
-
-		if checkSum != tt.checkSum {
-			t.Errorf("encodeHeader() checksum = %v, want %v", checkSum, tt.checkSum)
-		}
+		data := encodeHeader(tt.timestamp, tt.keySize, tt.valueSize)
+		timestamp, keySize, valueSize := decodeHeader(data)
 
 		if timestamp != tt.timestamp {
 			t.Errorf("encodeHeader() timestamp = %v, want %v", timestamp, tt.timestamp)
@@ -47,13 +42,9 @@ func Test_encodeKV(t *testing.T) {
 		{100, "🔑", "", headerSize + 4},
 	}
 	for _, tt := range tests {
-		expCheckSum := calculateCheckSum(tt.value)
 		size, data := encodeKV(tt.timestamp, tt.key, tt.value)
-		checkSum, timestamp, key, value := decodeKV(data)
+		timestamp, key, value := decodeKV(data)
 
-		if checkSum != expCheckSum {
-			t.Errorf("encodeKV() checksum = %v, want %v", checkSum, expCheckSum)
-		}
 		if timestamp != tt.timestamp {
 			t.Errorf("encodeKV() timestamp = %v, want %v", timestamp, tt.timestamp)
 		}
