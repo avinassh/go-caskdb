@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -24,10 +25,11 @@ func main() {
 
 	//yeet lando
 	store.Delete("mclaren")
-	val := store.Get("mclaren")
-	if val == caskDB.TombStoneVal {
+	val, err := store.Get("mclaren")
+	if val == "" && errors.Is(err, caskDB.ErrKeyNotFound) {
 		fmt.Println("mclaren dropped lando norris for good!")
 	}
 
-	fmt.Printf("%s drives for redbull racing!", store.Get("redbull"))
+	rbDriver, _ := store.Get("redbull")
+	fmt.Printf("%s drives for redbull racing!", rbDriver)
 }

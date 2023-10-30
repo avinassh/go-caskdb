@@ -1,10 +1,12 @@
 package caskdb
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"time"
 )
@@ -98,7 +100,7 @@ func NewDiskStore(fileName string) (*DiskStore, error) {
 	return ds, nil
 }
 
-func (d *DiskStore) Get(key string) string {
+func (d *DiskStore) Get(key string) (string, error) {
 	// Get retrieves the value from the disk and returns. If the key does not
 	// exist then it returns an empty string
 	//
@@ -111,27 +113,27 @@ func (d *DiskStore) Get(key string) string {
 	//
 	kEntry, ok := d.keyDir[key]
 	if !ok {
-		return ""
+		return "", ErrKeyNotFound
 	}
-	// move the current pointer to the right offset
-	// TODO: handle errors
-	d.file.Seek(int64(kEntry.position), defaultWhence)
-	data := make([]byte, kEntry.totalSize)
-	// TODO: handle errors
-	_, err := io.ReadFull(d.file, data)
-	if err != nil {
-		panic("read error")
-	}
-	_, _, value := decodeKV(data)
 
-	//check if its tombestone value
-	if string(value) == TombStoneVal {
-		return TombStoneVal
+	// move the current pointer to the right offset
+	_, err := d.file.Seek(int64(kEntry.position), defaultWhence)
+	if err != nil {
+		return "", ErrSeekFailed
 	}
-	return value
+
+	data := make([]byte, kEntry.totalSize)
+	_, err = io.ReadFull(d.file, data)
+	if err != nil {
+		return "", ErrReadFailed
+	}
+
+	result := &Record{}
+	result.DecodeKV(data)
+	return result.Value, nil
 }
 
-func (d *DiskStore) Set(key string, value string) {
+func (d *DiskStore) Set(key string, value string) error {
 	// Set stores the key and value on the disk
 	//
 	// The steps to save a KV to disk is simple:
@@ -139,16 +141,42 @@ func (d *DiskStore) Set(key string, value string) {
 	// 2. Write the bytes to disk by appending to the file
 	// 3. Update KeyDir with the KeyEntry of this key
 	timestamp := uint32(time.Now().Unix())
-	size, data := encodeKV(timestamp, key, value)
-	d.write(data)
-	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), uint32(size))
+	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(value))}
+	r := Record{Header: h, Key: key, Value: value}
+
+	//encode the record
+	buf := bytes.NewBuffer(make([]byte, headerSize))
+	err := r.EncodeKV(buf)
+	if err != nil {
+		log.Fatalf("error in encoding the value %v", err)
+		return ErrEncodingFailed
+	}
+	d.write(buf.Bytes())
+	size := headerSize + h.KeySize + h.ValueSize
+
+	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), size)
 	// update last write position, so that next record can be written from this point
-	d.writePosition += size
+	d.writePosition += int(size)
+
+	return nil
 }
 
-func (d *DiskStore) Delete(key string) {
-	// for delete operation, simply write a special tombstone value
-	d.Set(key, TombStoneVal)
+func (d *DiskStore) Delete(key string) error {
+	// for delete operation, we will update the tombstone value in the header
+	timestamp := uint32(time.Now().Unix())
+	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len("")), IsTombStone: 1}
+	r := Record{Header: h, Key: key, Value: ""}
+
+	buf := bytes.NewBuffer(make([]byte, headerSize))
+	err := r.EncodeKV(buf)
+	if err != nil {
+		return err
+	}
+	d.write(buf.Bytes())
+
+	//delete the key from the hash table
+	delete(d.keyDir, key)
+	return nil
 }
 
 func (d *DiskStore) Close() bool {
@@ -191,28 +219,33 @@ func (d *DiskStore) initKeyDir(existingFile string) {
 	for {
 		header := make([]byte, headerSize)
 		_, err := io.ReadFull(file, header)
+
 		if err == io.EOF {
 			break
 		}
-		// TODO: handle errors
 		if err != nil {
-			break
+			log.Fatalf("error while reading from the file: %v", err)
 		}
-		timestamp, keySize, valueSize := decodeHeader(header)
-		key := make([]byte, keySize)
-		value := make([]byte, valueSize)
+
+		h := &Header{}
+		h.DecodeHeader(header)
+		key := make([]byte, h.KeySize)
+		value := make([]byte, h.ValueSize)
+
 		_, err = io.ReadFull(file, key)
-		// TODO: handle errors
 		if err != nil {
+			log.Fatalf("error while reading the key: %v", err)
 			break
 		}
+
 		_, err = io.ReadFull(file, value)
-		// TODO: handle errors
 		if err != nil {
+			log.Fatalf("error while reading the value: %v", err)
 			break
 		}
-		totalSize := headerSize + keySize + valueSize
-		d.keyDir[string(key)] = NewKeyEntry(timestamp, uint32(d.writePosition), totalSize)
+
+		totalSize := headerSize + h.KeySize + h.ValueSize
+		d.keyDir[string(key)] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), totalSize)
 		d.writePosition += int(totalSize)
 		fmt.Printf("loaded key=%s, value=%s\n", key, value)
 	}

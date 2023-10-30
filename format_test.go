@@ -1,61 +1,82 @@
 package caskdb
 
 import (
+	"bytes"
 	"testing"
+	"time"
 )
 
 func Test_encodeHeader(t *testing.T) {
-	tests := []struct {
-		timestamp uint32
-		keySize   uint32
-		valueSize uint32
-	}{
-		{10, 10, 10},
-		{0, 0, 0},
-		{10000, 10000, 10000},
+	tests := []*Header{
+		{10, 10, 10, 1},
+		{0, 0, 0, 0},
+		{10000, 10000, 10000, 1},
 	}
 	for _, tt := range tests {
-		data := encodeHeader(tt.timestamp, tt.keySize, tt.valueSize)
-		timestamp, keySize, valueSize := decodeHeader(data)
+		newBuf := make([]byte, headerSize)
+		//encode the header
+		tt.EncodeHeader(newBuf)
 
-		if timestamp != tt.timestamp {
-			t.Errorf("encodeHeader() timestamp = %v, want %v", timestamp, tt.timestamp)
+		//encoded header should be 14bytes
+		if len(newBuf) != headerSize {
+			t.Errorf("Invalid encode: expected header size = %v, got = %v", headerSize, len(newBuf))
 		}
-		if keySize != tt.keySize {
-			t.Errorf("encodeHeader() keySize = %v, want %v", keySize, tt.keySize)
+
+		//decode the header
+		result := &Header{}
+		result.DecodeHeader(newBuf)
+
+		if result.TimeStamp != tt.TimeStamp {
+			t.Errorf("EncodeHeader() timestamp = %v, want %v", result.TimeStamp, tt.TimeStamp)
 		}
-		if valueSize != tt.valueSize {
-			t.Errorf("encodeHeader() valueSize = %v, want %v", valueSize, tt.valueSize)
+		if result.KeySize != tt.KeySize {
+			t.Errorf("EncodeHeader() keySize = %v, want %v", result.KeySize, tt.KeySize)
+		}
+		if result.ValueSize != tt.ValueSize {
+			t.Errorf("EncodeHeader() valueSize = %v, want %v", result.ValueSize, tt.ValueSize)
 		}
 	}
 }
 
 func Test_encodeKV(t *testing.T) {
-	tests := []struct {
-		timestamp uint32
-		key       string
-		value     string
-		size      int
-	}{
-		{10, "hello", "world", headerSize + 10},
-		{0, "", "", headerSize},
-		{100, "🔑", "", headerSize + 4},
-	}
-	for _, tt := range tests {
-		size, data := encodeKV(tt.timestamp, tt.key, tt.value)
-		timestamp, key, value := decodeKV(data)
+	k1, v1 := "hello", "world"
+	h1 := Header{TimeStamp: uint32(time.Now().Unix()), KeySize: uint32(len(k1)), ValueSize: uint32(len(v1)), IsTombStone: 0}
+	r1 := Record{Header: h1, Key: k1, Value: v1}
 
-		if timestamp != tt.timestamp {
-			t.Errorf("encodeKV() timestamp = %v, want %v", timestamp, tt.timestamp)
+	k2, v2 := "", ""
+	h2 := Header{TimeStamp: uint32(time.Now().Unix()), KeySize: uint32(len(k2)), ValueSize: uint32(len(v2)), IsTombStone: 1}
+	r2 := Record{Header: h2, Key: k2, Value: v2}
+
+	k3, v3 := "🔑", ""
+	h3 := Header{TimeStamp: uint32(time.Now().Unix()), KeySize: uint32(len(k3)), ValueSize: uint32(len(v3)), IsTombStone: 0}
+	r3 := Record{Header: h3, Key: k3, Value: v3}
+
+	tests := []Record{r1, r2, r3}
+	for _, tt := range tests {
+		//encode the record
+		buf := bytes.NewBuffer(make([]byte, headerSize))
+		tt.EncodeKV(buf)
+
+		//encoded buffer size should be equal to headersize + keysize + valuesize
+		expectedSize := (headerSize + tt.Header.KeySize + tt.Header.ValueSize)
+		if uint32(len(buf.Bytes())) != expectedSize {
+			t.Errorf("EncodeKV() invalid encoding, expected size=%v, got=%v", expectedSize, uint32(len(buf.Bytes())))
 		}
-		if key != tt.key {
-			t.Errorf("encodeKV() key = %v, want %v", key, tt.key)
+
+		//decode the record
+		result := &Record{}
+		result.DecodeKV(buf.Bytes())
+
+		if result.Header.TimeStamp != tt.Header.TimeStamp {
+			t.Errorf("EncodeKV() timestamp = %v, want %v", result.Header.TimeStamp, tt.Header.TimeStamp)
 		}
-		if value != tt.value {
-			t.Errorf("encodeKV() value = %v, want %v", value, tt.value)
+		if result.Key != tt.Key {
+			t.Errorf("EncodeKV() key = %v, want %v", result.Key, tt.Key)
 		}
-		if size != tt.size {
-			t.Errorf("encodeKV() size = %v, want %v", size, tt.size)
+
+		if result.Value != tt.Value {
+			t.Errorf("encodeKV() value = %v, want %v", result.Value, tt.Value)
 		}
+
 	}
 }

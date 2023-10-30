@@ -3,10 +3,10 @@ name: build
 on:
   push:
     branches:
-      - 'master'
+      - 'final'
   pull_request:
     branches:
-      - 'master'
+      - 'final'
 
 jobs:
   tests:
