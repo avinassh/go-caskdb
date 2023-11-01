@@ -4,7 +4,11 @@ on:
   push:
     branches:
       - 'master'
-  pull_request: {}
+      - 'final'
+  pull_request:
+    branches:
+      - 'master'
+      - 'final'
 
 jobs:
   tests:

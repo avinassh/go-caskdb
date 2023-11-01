@@ -1,5 +1,10 @@
 package caskdb
 
+import (
+	"bytes"
+	"encoding/binary"
+)
+
 // format file provides encode/decode functions for serialisation and deserialisation
 // operations
 //
@@ -36,32 +41,31 @@ package caskdb
 //    func encodeKV(timestamp uint32, key string, value string) (int, []byte)
 //    func decodeKV(data []byte) (uint32, string, string)
 
-import "encoding/binary"
-
 // headerSize specifies the total header size. Our key value pair, when stored on disk
 // looks like this:
 //
-//	┌───────────┬──────────┬────────────┬─────┬───────┐
-//	│ timestamp │ key_size │ value_size │ key │ value │
-//	└───────────┴──────────┴────────────┴─────┴───────┘
+//	┌───────────┬───────────┬────────────┬─────────┬─────┬───────┐
+//	│ timestamp │ key_size  | value_size │   meta  │ key │ value │
+//	└───────────┴───────────┴────────────┴─────────┴─────┴───────┘
 //
 // This is analogous to a typical database's row (or a record). The total length of
 // the row is variable, depending on the contents of the key and value.
 //
-// The first three fields form the header:
+// The first four fields form the header:
 //
-//	┌───────────────┬──────────────┬────────────────┐
-//	│ timestamp(4B) │ key_size(4B) │ value_size(4B) │
-//	└───────────────┴──────────────┴────────────────┘
+//	┌───────────────┬──────────────┬────────────────┬─────────────┐
+//	│ timestamp(4B) │ key_size(4B) | value_size(4B) │   meta(1B)  │
+//	└───────────────┴──────────────┴────────────────┴─────────────┘
 //
-// These three fields store unsigned integers of size 4 bytes, giving our header a
-// fixed length of 12 bytes. Timestamp field stores the time the record we
-// inserted in unix epoch seconds. Key size and value size fields store the length of
-// bytes occupied by the key and value. The maximum integer
-// stored by 4 bytes is 4,294,967,295 (2 ** 32 - 1), roughly ~4.2GB. So, the size of
-// each key or value cannot exceed this. Theoretically, a single row can be as large
-// as ~8.4GB.
-const headerSize = 12
+// The first three fields store unsigned integers of size 4 bytes and last field stores 1 byte.
+// giving our header a fixed length of 14 bytes.
+// Timestamp field stores the time the record we inserted in unix epoch seconds.
+// Key size and value size fields store the length of bytes occupied by the key and value.
+// meta stores all the metadata about a kv record.
+// We can use it for marking a record as tombstone by setting its MSB to 1.
+// The maximum integer stored by 4 bytes is 4,294,967,295 (2 ** 32 - 1), roughly ~4.2GB.
+// So, the size of each key or value cannot exceed this. Theoretically, a single row can be as large as ~8.4GB.
+const headerSize = 13
 
 // KeyEntry keeps the metadata about the KV, specially the position of
 // the byte offset in the file. Whenever we insert/update a key, we create a new
@@ -78,34 +82,74 @@ type KeyEntry struct {
 	totalSize uint32
 }
 
+type Header struct {
+	TimeStamp uint32
+	KeySize   uint32
+	ValueSize uint32
+	Meta      uint8
+}
+
+type Record struct {
+	Header     Header
+	Key        string
+	Value      string
+	RecordSize uint32
+}
+
 func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) KeyEntry {
 	return KeyEntry{timestamp, position, totalSize}
 }
 
-func encodeHeader(timestamp uint32, keySize uint32, valueSize uint32) []byte {
-	header := make([]byte, headerSize)
-	binary.LittleEndian.PutUint32(header[0:4], timestamp)
-	binary.LittleEndian.PutUint32(header[4:8], keySize)
-	binary.LittleEndian.PutUint32(header[8:12], valueSize)
-	return header
+func (h *Header) EncodeHeader(buf *bytes.Buffer) error {
+	err := binary.Write(buf, binary.LittleEndian, &h.TimeStamp)
+	binary.Write(buf, binary.LittleEndian, &h.KeySize)
+	binary.Write(buf, binary.LittleEndian, &h.ValueSize)
+	binary.Write(buf, binary.LittleEndian, &h.Meta)
+	return err
 }
 
-func decodeHeader(header []byte) (uint32, uint32, uint32) {
-	timestamp := binary.LittleEndian.Uint32(header[0:4])
-	keySize := binary.LittleEndian.Uint32(header[4:8])
-	valueSize := binary.LittleEndian.Uint32(header[8:12])
-	return timestamp, keySize, valueSize
+func (h *Header) DecodeHeader(buf []byte) error {
+	err := binary.Read(bytes.NewReader(buf[0:4]), binary.LittleEndian, &h.TimeStamp)
+	binary.Read(bytes.NewReader(buf[4:8]), binary.LittleEndian, &h.KeySize)
+	binary.Read(bytes.NewReader(buf[8:12]), binary.LittleEndian, &h.ValueSize)
+	binary.Read(bytes.NewReader(buf[12:13]), binary.LittleEndian, &h.Meta)
+	return err
 }
 
-func encodeKV(timestamp uint32, key string, value string) (int, []byte) {
-	header := encodeHeader(timestamp, uint32(len(key)), uint32(len(value)))
-	data := append([]byte(key), []byte(value)...)
-	return headerSize + len(data), append(header, data...)
+func (h *Header) MarkTombStone() {
+	// setting the MSB to 1
+	h.Meta = h.Meta | (1 << 7)
 }
 
-func decodeKV(data []byte) (uint32, string, string) {
-	timestamp, keySize, valueSize := decodeHeader(data[0:headerSize])
-	key := string(data[headerSize : headerSize+keySize])
-	value := string(data[headerSize+keySize : headerSize+keySize+valueSize])
-	return timestamp, key, value
+func (h *Header) IsTombStone() bool {
+	// checking if MSB is set to 1
+	return (1 << 7) == (h.Meta & (1 << 7))
+}
+
+func NewHeader(buf []byte) (*Header, error) {
+	h := &Header{}
+	err := h.DecodeHeader(buf)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+func (r *Record) EncodeKV(buf *bytes.Buffer) error {
+	r.Header.EncodeHeader(buf)
+	buf.WriteString(r.Key)
+	_, err := buf.Write([]byte(r.Value))
+	return err
+}
+
+func (r *Record) DecodeKV(buf []byte) error {
+	err := r.Header.DecodeHeader(buf[:headerSize])
+	r.Key = string(buf[headerSize : headerSize+r.Header.KeySize])
+	r.Value = string(buf[headerSize+r.Header.KeySize : headerSize+r.Header.KeySize+r.Header.ValueSize])
+	r.RecordSize = headerSize + r.Header.KeySize + r.Header.ValueSize
+	return err
+}
+
+func (r *Record) Size() uint32 {
+	return r.RecordSize
 }

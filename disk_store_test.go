@@ -1,6 +1,7 @@
 package caskdb
 
 import (
+	"errors"
 	"os"
 	"testing"
 )
@@ -12,7 +13,8 @@ func TestDiskStore_Get(t *testing.T) {
 	}
 	defer os.Remove("test.db")
 	store.Set("name", "jojo")
-	if val := store.Get("name"); val != "jojo" {
+	val, _ := store.Get("name")
+	if val != "jojo" {
 		t.Errorf("Get() = %v, want %v", val, "jojo")
 	}
 }
@@ -23,7 +25,8 @@ func TestDiskStore_GetInvalid(t *testing.T) {
 		t.Fatalf("failed to create disk store: %v", err)
 	}
 	defer os.Remove("test.db")
-	if val := store.Get("some key"); val != "" {
+	val, _ := store.Get("some key")
+	if val != "" {
 		t.Errorf("Get() = %v, want %v", val, "")
 	}
 }
@@ -44,10 +47,12 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 		"brave new world":      "huxley",
 		"dune":                 "frank herbert",
 	}
+
 	for key, val := range tests {
 		store.Set(key, val)
-		if store.Get(key) != val {
-			t.Errorf("Get() = %v, want %v", store.Get(key), val)
+		actualVal, _ := store.Get(key)
+		if actualVal != val {
+			t.Errorf("Get() = %v, want %v", actualVal, val)
 		}
 	}
 	store.Close()
@@ -56,8 +61,9 @@ func TestDiskStore_SetWithPersistence(t *testing.T) {
 		t.Fatalf("failed to create disk store: %v", err)
 	}
 	for key, val := range tests {
-		if store.Get(key) != val {
-			t.Errorf("Get() = %v, want %v", store.Get(key), val)
+		actualVal, _ := store.Get(key)
+		if actualVal != val {
+			t.Errorf("Get() = %v, want %v", actualVal, val)
 		}
 	}
 	store.Close()
@@ -82,23 +88,31 @@ func TestDiskStore_Delete(t *testing.T) {
 	for key, val := range tests {
 		store.Set(key, val)
 	}
-	for key, _ := range tests {
-		store.Set(key, "")
+
+	// only for tests
+	deletedKeys := []string{"hamlet", "dune", "othello"}
+	//delete few keys
+	for _, k := range deletedKeys {
+		store.Delete(k)
 	}
-	store.Set("end", "yes")
 	store.Close()
 
 	store, err = NewDiskStore("test.db")
 	if err != nil {
 		t.Fatalf("failed to create disk store: %v", err)
 	}
-	for key := range tests {
-		if store.Get(key) != "" {
-			t.Errorf("Get() = %v, want '' (empty)", store.Get(key))
+
+	//check for deletion
+	for _, dkeys := range deletedKeys {
+		actualVal, err := store.Get(dkeys)
+
+		if actualVal != "" {
+			t.Errorf("Get() = %s, want %s", actualVal, "")
 		}
-	}
-	if store.Get("end") != "yes" {
-		t.Errorf("Get() = %v, want %v", store.Get("end"), "yes")
+
+		if errors.Is(err, ErrKeyNotFound) {
+			t.Errorf("Get() = %v, want %v", err, ErrKeyNotFound)
+		}
 	}
 	store.Close()
 }

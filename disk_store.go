@@ -1,10 +1,12 @@
 package caskdb
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"time"
 )
@@ -84,7 +86,10 @@ func NewDiskStore(fileName string) (*DiskStore, error) {
 	ds := &DiskStore{keyDir: make(map[string]KeyEntry)}
 	// if the file exists already, then we will load the key_dir
 	if isFileExists(fileName) {
-		ds.initKeyDir(fileName)
+		err := ds.initKeyDir(fileName)
+		if err != nil {
+			log.Fatalf("error while loading the keys from disk: %v", err)
+		}
 	}
 	// we open the file in following modes:
 	//	os.O_APPEND - says that the writes are append only.
@@ -98,35 +103,44 @@ func NewDiskStore(fileName string) (*DiskStore, error) {
 	return ds, nil
 }
 
-func (d *DiskStore) Get(key string) string {
+func (d *DiskStore) Get(key string) (string, error) {
 	// Get retrieves the value from the disk and returns. If the key does not
 	// exist then it returns an empty string
 	//
 	// How get works?
 	//	1. Check if there is any KeyEntry record for the key in keyDir
-	//	2. Return an empty string if key doesn't exist
+	//	2. Return an empty string if key doesn't exist or if the key has been deleted
 	//	3. If it exists, then read KeyEntry.totalSize bytes starting from the
 	//     KeyEntry.position from the disk
 	//	4. Decode the bytes into valid KV pair and return the value
 	//
 	kEntry, ok := d.keyDir[key]
 	if !ok {
-		return ""
+		return "", ErrKeyNotFound
 	}
+
 	// move the current pointer to the right offset
-	// TODO: handle errors
-	d.file.Seek(int64(kEntry.position), defaultWhence)
-	data := make([]byte, kEntry.totalSize)
-	// TODO: handle errors
-	_, err := io.ReadFull(d.file, data)
+	_, err := d.file.Seek(int64(kEntry.position), defaultWhence)
 	if err != nil {
-		panic("read error")
+		return "", ErrSeekFailed
 	}
-	_, _, value := decodeKV(data)
-	return value
+
+	data := make([]byte, kEntry.totalSize)
+	_, err = io.ReadFull(d.file, data)
+	if err != nil {
+		return "", ErrReadFailed
+	}
+
+	result := &Record{}
+	err = result.DecodeKV(data)
+	if err != nil {
+		return "", ErrDecodingFailed
+	}
+
+	return result.Value, nil
 }
 
-func (d *DiskStore) Set(key string, value string) {
+func (d *DiskStore) Set(key string, value string) error {
 	// Set stores the key and value on the disk
 	//
 	// The steps to save a KV to disk is simple:
@@ -134,11 +148,41 @@ func (d *DiskStore) Set(key string, value string) {
 	// 2. Write the bytes to disk by appending to the file
 	// 3. Update KeyDir with the KeyEntry of this key
 	timestamp := uint32(time.Now().Unix())
-	size, data := encodeKV(timestamp, key, value)
-	d.write(data)
-	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), uint32(size))
+	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(value))}
+	r := Record{Header: h, Key: key, Value: value, RecordSize: headerSize + h.KeySize + h.ValueSize}
+
+	//encode the record
+	buf := new(bytes.Buffer)
+	err := r.EncodeKV(buf)
+	if err != nil {
+		return ErrEncodingFailed
+	}
+	d.write(buf.Bytes())
+
+	d.keyDir[key] = NewKeyEntry(timestamp, uint32(d.writePosition), r.Size())
 	// update last write position, so that next record can be written from this point
-	d.writePosition += size
+	d.writePosition += int(r.Size())
+
+	return nil
+}
+
+func (d *DiskStore) Delete(key string) error {
+	timestamp := uint32(time.Now().Unix())
+	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(""))}
+	// mark as tombstone
+	h.MarkTombStone()
+	r := Record{Header: h, Key: key, Value: "", RecordSize: headerSize + h.KeySize + h.ValueSize}
+
+	buf := new(bytes.Buffer)
+	err := r.EncodeKV(buf)
+	if err != nil {
+		return err
+	}
+	d.write(buf.Bytes())
+
+	//delete the key from the hash table
+	delete(d.keyDir, key)
+	return nil
 }
 
 func (d *DiskStore) Close() bool {
@@ -169,7 +213,7 @@ func (d *DiskStore) write(data []byte) {
 	}
 }
 
-func (d *DiskStore) initKeyDir(existingFile string) {
+func (d *DiskStore) initKeyDir(existingFile string) error {
 	// we will initialise the keyDir by reading the contents of the file, record by
 	// record. As we read each record, we will also update our keyDir with the
 	// corresponding KeyEntry
@@ -181,29 +225,36 @@ func (d *DiskStore) initKeyDir(existingFile string) {
 	for {
 		header := make([]byte, headerSize)
 		_, err := io.ReadFull(file, header)
+
 		if err == io.EOF {
 			break
 		}
-		// TODO: handle errors
 		if err != nil {
-			break
+			return err
 		}
-		timestamp, keySize, valueSize := decodeHeader(header)
-		key := make([]byte, keySize)
-		value := make([]byte, valueSize)
+
+		h, err := NewHeader(header)
+		if err != nil {
+			return err
+		}
+
+		key := make([]byte, h.KeySize)
+		value := make([]byte, h.ValueSize)
+
 		_, err = io.ReadFull(file, key)
-		// TODO: handle errors
 		if err != nil {
-			break
+			return err
 		}
+
 		_, err = io.ReadFull(file, value)
-		// TODO: handle errors
 		if err != nil {
-			break
+			return err
 		}
-		totalSize := headerSize + keySize + valueSize
-		d.keyDir[string(key)] = NewKeyEntry(timestamp, uint32(d.writePosition), totalSize)
+
+		totalSize := headerSize + h.KeySize + h.ValueSize
+		d.keyDir[string(key)] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), totalSize)
 		d.writePosition += int(totalSize)
 		fmt.Printf("loaded key=%s, value=%s\n", key, value)
 	}
+	return nil
 }
