@@ -44,27 +44,28 @@ import (
 // headerSize specifies the total header size. Our key value pair, when stored on disk
 // looks like this:
 //
-//	┌───────────┬───────────┬────────────┬────────────┬─────┬───────┐
-//	│ timestamp │ key_size  | value_size │ tombstone  │ key │ value │
-//	└───────────┴───────────┴────────────┴────────────┴─────┴───────┘
+//	┌───────────┬───────────┬────────────┬─────────┬─────┬───────┐
+//	│ timestamp │ key_size  | value_size │   meta  │ key │ value │
+//	└───────────┴───────────┴────────────┴─────────┴─────┴───────┘
 //
 // This is analogous to a typical database's row (or a record). The total length of
 // the row is variable, depending on the contents of the key and value.
 //
 // The first four fields form the header:
 //
-//	┌───────────────┬──────────────┬────────────────┬────────────────┐
-//	│ timestamp(4B) │ key_size(4B) | value_size(4B) │ tombstone(2B)  │
-//	└───────────────┴──────────────┴────────────────┴────────────────┘
+//	┌───────────────┬──────────────┬────────────────┬─────────────┐
+//	│ timestamp(4B) │ key_size(4B) | value_size(4B) │   meta(1B)  │
+//	└───────────────┴──────────────┴────────────────┴─────────────┘
 //
-// The first three fields store unsigned integers of size 4 bytes and last field stores 2 bytes,
+// The first three fields store unsigned integers of size 4 bytes and last field stores 1 byte.
 // giving our header a fixed length of 14 bytes.
 // Timestamp field stores the time the record we inserted in unix epoch seconds.
 // Key size and value size fields store the length of bytes occupied by the key and value.
-// tombstone stores the whether the key has been marked for deletion or not.
+// meta stores all the metadata about a kv record.
+// We can use it for marking a record as tombstone by setting its MSB to 1.
 // The maximum integer stored by 4 bytes is 4,294,967,295 (2 ** 32 - 1), roughly ~4.2GB.
 // So, the size of each key or value cannot exceed this. Theoretically, a single row can be as large as ~8.4GB.
-const headerSize = 14
+const headerSize = 13
 
 // KeyEntry keeps the metadata about the KV, specially the position of
 // the byte offset in the file. Whenever we insert/update a key, we create a new
@@ -82,45 +83,73 @@ type KeyEntry struct {
 }
 
 type Header struct {
-	TimeStamp   uint32
-	KeySize     uint32
-	ValueSize   uint32
-	IsTombStone uint16
+	TimeStamp uint32
+	KeySize   uint32
+	ValueSize uint32
+	Meta      uint8
 }
 
 type Record struct {
-	Header Header
-	Key    string
-	Value  string
+	Header     Header
+	Key        string
+	Value      string
+	RecordSize uint32
 }
 
 func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) KeyEntry {
 	return KeyEntry{timestamp, position, totalSize}
 }
 
-func (h *Header) EncodeHeader(buf []byte) {
-	binary.LittleEndian.PutUint32(buf[0:4], h.TimeStamp)
-	binary.LittleEndian.PutUint32(buf[4:8], h.KeySize)
-	binary.LittleEndian.PutUint32(buf[8:12], h.ValueSize)
-	binary.LittleEndian.PutUint16(buf[12:14], h.IsTombStone)
+func (h *Header) EncodeHeader(buf *bytes.Buffer) error {
+	err := binary.Write(buf, binary.LittleEndian, &h.TimeStamp)
+	binary.Write(buf, binary.LittleEndian, &h.KeySize)
+	binary.Write(buf, binary.LittleEndian, &h.ValueSize)
+	binary.Write(buf, binary.LittleEndian, &h.Meta)
+	return err
 }
 
-func (h *Header) DecodeHeader(buf []byte) {
-	h.TimeStamp = binary.LittleEndian.Uint32(buf[0:4])
-	h.KeySize = binary.LittleEndian.Uint32(buf[4:8])
-	h.ValueSize = binary.LittleEndian.Uint32(buf[8:12])
-	h.IsTombStone = binary.LittleEndian.Uint16(buf[12:14])
+func (h *Header) DecodeHeader(buf []byte) error {
+	err := binary.Read(bytes.NewReader(buf[0:4]), binary.LittleEndian, &h.TimeStamp)
+	binary.Read(bytes.NewReader(buf[4:8]), binary.LittleEndian, &h.KeySize)
+	binary.Read(bytes.NewReader(buf[8:12]), binary.LittleEndian, &h.ValueSize)
+	binary.Read(bytes.NewReader(buf[12:13]), binary.LittleEndian, &h.Meta)
+	return err
+}
+
+func (h *Header) MarkTombStone() {
+	// setting the MSB to 1
+	h.Meta = h.Meta | (1 << 7)
+}
+
+func (h *Header) IsTombStone() bool {
+	// checking if MSB is set to 1
+	return (1 << 7) == (h.Meta & (1 << 7))
+}
+
+func NewHeader(buf []byte) (*Header, error) {
+	h := &Header{}
+	err := h.DecodeHeader(buf)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
 }
 
 func (r *Record) EncodeKV(buf *bytes.Buffer) error {
-	r.Header.EncodeHeader(buf.Bytes())
+	r.Header.EncodeHeader(buf)
 	buf.WriteString(r.Key)
 	_, err := buf.Write([]byte(r.Value))
 	return err
 }
 
-func (r *Record) DecodeKV(buf []byte) {
-	r.Header.DecodeHeader(buf[:headerSize])
+func (r *Record) DecodeKV(buf []byte) error {
+	err := r.Header.DecodeHeader(buf[:headerSize])
 	r.Key = string(buf[headerSize : headerSize+r.Header.KeySize])
 	r.Value = string(buf[headerSize+r.Header.KeySize : headerSize+r.Header.KeySize+r.Header.ValueSize])
+	r.RecordSize = headerSize + r.Header.KeySize + r.Header.ValueSize
+	return err
+}
+
+func (r *Record) Size() uint32 {
+	return r.RecordSize
 }

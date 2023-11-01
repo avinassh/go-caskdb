@@ -7,4 +7,5 @@ var (
 	ErrSeekFailed     = errors.New("see fail: failed to seek to the correct offset")
 	ErrReadFailed     = errors.New("read fail: failed to read data from disk")
 	ErrEncodingFailed = errors.New("encoding fail: failed to encode kv record")
+	ErrDecodingFailed = errors.New("decoding fail: failed to decode kv record")
 )

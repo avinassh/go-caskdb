@@ -105,8 +105,13 @@ func TestDiskStore_Delete(t *testing.T) {
 	//check for deletion
 	for _, dkeys := range deletedKeys {
 		actualVal, err := store.Get(dkeys)
-		if actualVal != "" && errors.Is(err, ErrKeyNotFound) {
+
+		if actualVal != "" {
 			t.Errorf("Get() = %s, want %s", actualVal, "")
+		}
+
+		if errors.Is(err, ErrKeyNotFound) {
+			t.Errorf("Get() = %v, want %v", err, ErrKeyNotFound)
 		}
 	}
 	store.Close()
