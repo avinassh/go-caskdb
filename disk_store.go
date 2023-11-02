@@ -147,6 +147,11 @@ func (d *DiskStore) Set(key string, value string) error {
 	// 1. Encode the KV into bytes
 	// 2. Write the bytes to disk by appending to the file
 	// 3. Update KeyDir with the KeyEntry of this key
+
+	if err := validateKV(key, []byte(value)); err != nil {
+		return err
+	}
+
 	timestamp := uint32(time.Now().Unix())
 	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(value))}
 	r := Record{Header: h, Key: key, Value: value, RecordSize: headerSize + h.KeySize + h.ValueSize}

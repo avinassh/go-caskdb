@@ -62,9 +62,14 @@ import (
 // Timestamp field stores the time the record we inserted in unix epoch seconds.
 // Key size and value size fields store the length of bytes occupied by the key and value.
 // We can use it for marking a record as tombstone by setting its MSB to 1.
+const headerSize = 13
+
 // The maximum integer stored by 4 bytes is 4,294,967,295 (2 ** 32 - 1), roughly ~4.2GB.
 // So, the size of each key or value cannot exceed this. Theoretically, a single row can be as large as ~8.4GB.
-const headerSize = 13
+const (
+	MaxKeySize   = 1<<32 - 1
+	MaxValueSize = 1<<32 - 1
+)
 
 // KeyEntry keeps the metadata about the KV, specially the position of
 // the byte offset in the file. Whenever we insert/update a key, we create a new
