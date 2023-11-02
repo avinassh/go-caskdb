@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"io/fs"
 	"log"
@@ -137,6 +138,11 @@ func (d *DiskStore) Get(key string) (string, error) {
 		return "", ErrDecodingFailed
 	}
 
+	//validate if the checksum matches means the value is not corrupted
+	if !result.VerifyCheckSum() {
+		return "", ErrChecksumMismatch
+	}
+
 	return result.Value, nil
 }
 
@@ -153,7 +159,7 @@ func (d *DiskStore) Set(key string, value string) error {
 	}
 
 	timestamp := uint32(time.Now().Unix())
-	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(value))}
+	h := Header{CheckSum: crc32.ChecksumIEEE([]byte(value)), TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(value))}
 	r := Record{Header: h, Key: key, Value: value, RecordSize: headerSize + h.KeySize + h.ValueSize}
 
 	//encode the record
@@ -173,7 +179,8 @@ func (d *DiskStore) Set(key string, value string) error {
 
 func (d *DiskStore) Delete(key string) error {
 	timestamp := uint32(time.Now().Unix())
-	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(""))}
+	value := ""
+	h := Header{CheckSum: crc32.ChecksumIEEE([]byte(value)), TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(value))}
 	// mark as tombstone
 	h.MarkTombStone()
 	r := Record{Header: h, Key: key, Value: "", RecordSize: headerSize + h.KeySize + h.ValueSize}

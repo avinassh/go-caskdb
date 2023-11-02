@@ -14,4 +14,6 @@ var (
 
 	ErrEncodingFailed = errors.New("encoding fail: failed to encode kv record")
 	ErrDecodingFailed = errors.New("decoding fail: failed to decode kv record")
+
+	ErrChecksumMismatch = errors.New("invalid data: checksum does not match")
 )
