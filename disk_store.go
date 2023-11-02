@@ -258,3 +258,14 @@ func (d *DiskStore) initKeyDir(existingFile string) error {
 	}
 	return nil
 }
+
+// returns a list of the current keys
+func (d *DiskStore) ListKeys() []string {
+	result := make([]string, 0, len(d.keyDir))
+
+	for k := range d.keyDir {
+		result = append(result, k)
+	}
+
+	return result
+}
