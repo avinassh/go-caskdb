@@ -46,23 +46,24 @@ import (
 // looks like this:
 //
 //	┌────────┬─────────┬────────────┬────────────┬─────────────┬───────┬───────┐
-//	│ meta   |   crc   | timestamp  │  key_size  | value_size  │  key  │ value │
+//	│  crc   |  meta   | timestamp  │  key_size  | value_size  │  key  │ value │
 //	└────────┴─────────┴────────────┴────────────┴─────────────┴───────┴───────┘
 //
 // This is analogous to a typical database's row (or a record). The total length of
 // the row is variable, depending on the contents of the key and value.
 //
-// The first four fields form the header:
+// The first five fields form the header:
 //
 //	┌───────────┬────────────┬─────────────────┬───────────────┬─────────────────┐
-//	│ meta(1B)  │  crc(4B)   |  timestamp(4B)  | key_size(4B)  │ value_size(4B)  │
+//	│ crc(4B)   │  meta(1B)  |  timestamp(4B)  | key_size(4B)  │ value_size(4B)  │
 //	└───────────┴────────────┴─────────────────┴───────────────┴─────────────────┘
 //
-// The first byte stores the metadata about the kv record.
-// The rest four fields store unsigned integers of size 4 bytes giving our header a fixed length of 17 bytes.
+// The first field of 4 bytes stores the checksum of the kv record including the header.
+// The second byte stores the metadata about the kv record.
+// We can use it for marking a record as tombstone by setting its MSB to 1.
+// The rest three fields store unsigned integers of size 4 bytes giving our header a fixed length of 17 bytes.
 // Timestamp field stores the time the record we inserted in unix epoch seconds.
 // Key size and value size fields store the length of bytes occupied by the key and value.
-// We can use it for marking a record as tombstone by setting its MSB to 1.
 const headerSize = 17
 
 // The maximum integer stored by 4 bytes is 4,294,967,295 (2 ** 32 - 1), roughly ~4.2GB.
@@ -88,8 +89,8 @@ type KeyEntry struct {
 }
 
 type Header struct {
-	Meta      uint8
 	CheckSum  uint32
+	Meta      uint8
 	TimeStamp uint32
 	KeySize   uint32
 	ValueSize uint32
@@ -107,8 +108,8 @@ func NewKeyEntry(timestamp uint32, position uint32, totalSize uint32) KeyEntry {
 }
 
 func (h *Header) EncodeHeader(buf *bytes.Buffer) error {
-	err := binary.Write(buf, binary.LittleEndian, &h.Meta)
-	binary.Write(buf, binary.LittleEndian, &h.CheckSum)
+	err := binary.Write(buf, binary.LittleEndian, &h.CheckSum)
+	binary.Write(buf, binary.LittleEndian, &h.Meta)
 	binary.Write(buf, binary.LittleEndian, &h.TimeStamp)
 	binary.Write(buf, binary.LittleEndian, &h.KeySize)
 	binary.Write(buf, binary.LittleEndian, &h.ValueSize)
@@ -116,8 +117,8 @@ func (h *Header) EncodeHeader(buf *bytes.Buffer) error {
 }
 
 func (h *Header) DecodeHeader(buf []byte) error {
-	err := binary.Read(bytes.NewReader(buf[0:1]), binary.LittleEndian, &h.Meta)
-	binary.Read(bytes.NewReader(buf[1:5]), binary.LittleEndian, &h.CheckSum)
+	err := binary.Read(bytes.NewReader(buf[0:4]), binary.LittleEndian, &h.CheckSum)
+	binary.Read(bytes.NewReader(buf[4:5]), binary.LittleEndian, &h.Meta)
 	binary.Read(bytes.NewReader(buf[5:9]), binary.LittleEndian, &h.TimeStamp)
 	binary.Read(bytes.NewReader(buf[9:13]), binary.LittleEndian, &h.KeySize)
 	binary.Read(bytes.NewReader(buf[13:17]), binary.LittleEndian, &h.ValueSize)
@@ -143,6 +144,17 @@ func NewHeader(buf []byte) (*Header, error) {
 	return h, nil
 }
 
+func (h *Header) CalculateCheckSum(key, value string) uint32 {
+	// encode header
+	headerBuf := new(bytes.Buffer)
+	h.EncodeHeader(headerBuf)
+	// encode kv
+	kvBuf := append([]byte(key), []byte(value)...)
+
+	buf := append(headerBuf.Bytes()[4:], kvBuf...)
+	return crc32.ChecksumIEEE(buf)
+}
+
 func (r *Record) EncodeKV(buf *bytes.Buffer) error {
 	r.Header.EncodeHeader(buf)
 	buf.WriteString(r.Key)
@@ -162,6 +174,6 @@ func (r *Record) Size() uint32 {
 	return r.RecordSize
 }
 
-func (r *Record) VerifyCheckSum() bool {
-	return crc32.ChecksumIEEE([]byte(r.Value)) == r.Header.CheckSum
+func (r *Record) VerifyCheckSum(data []byte) bool {
+	return crc32.ChecksumIEEE(data[4:]) == r.Header.CheckSum
 }
