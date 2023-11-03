@@ -122,5 +122,12 @@ $ tokei -f format.go disk_store.go
 ## Contributing
 All contributions are welcome. Please check [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
 
+## Community Contributions
+
+| Author                                          | Feature   | PR                                                 |
+|-------------------------------------------------|-----------|----------------------------------------------------|
+| [PaulisMatrix](https://github.com/PaulisMatrix) | Delete Op | [#6](https://github.com/avinassh/go-caskdb/pull/6) |
+| [PaulisMatrix](https://github.com/PaulisMatrix) | Checksum  | [#7](https://github.com/avinassh/go-caskdb/pull/7) |
+
 ## License
 The MIT license. Please check `LICENSE` for more details.
