@@ -10,7 +10,8 @@ import (
 )
 
 func main() {
-	store, err := caskDB.NewDiskStore("test.db")
+	dataFileName := "test.db"
+	store, err := caskDB.NewDiskStore(dataFileName)
 	if err != nil {
 		log.Fatalf("failed to create disk store: %v", err)
 		os.Exit(-1)
@@ -31,5 +32,11 @@ func main() {
 	}
 
 	rbDriver, _ := store.Get("redbull")
-	fmt.Printf("%s drives for redbull racing!", rbDriver)
+	fmt.Printf("%s drives for redbull racing!\n", rbDriver)
+
+	fmt.Println("Current keys:")
+	for _, key := range store.ListKeys() {
+		fmt.Printf("key: %s\n", key)
+	}
+
 }

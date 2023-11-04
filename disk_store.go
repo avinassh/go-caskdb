@@ -137,6 +137,11 @@ func (d *DiskStore) Get(key string) (string, error) {
 		return "", ErrDecodingFailed
 	}
 
+	//validate if the checksum matches means the value is not corrupted
+	if !result.VerifyCheckSum(data) {
+		return "", ErrChecksumMismatch
+	}
+
 	return result.Value, nil
 }
 
@@ -147,9 +152,15 @@ func (d *DiskStore) Set(key string, value string) error {
 	// 1. Encode the KV into bytes
 	// 2. Write the bytes to disk by appending to the file
 	// 3. Update KeyDir with the KeyEntry of this key
+
+	if err := validateKV(key, []byte(value)); err != nil {
+		return err
+	}
+
 	timestamp := uint32(time.Now().Unix())
 	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(value))}
 	r := Record{Header: h, Key: key, Value: value, RecordSize: headerSize + h.KeySize + h.ValueSize}
+	r.Header.CheckSum = r.CalculateCheckSum()
 
 	//encode the record
 	buf := new(bytes.Buffer)
@@ -168,10 +179,13 @@ func (d *DiskStore) Set(key string, value string) error {
 
 func (d *DiskStore) Delete(key string) error {
 	timestamp := uint32(time.Now().Unix())
-	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(""))}
+	value := ""
+	h := Header{TimeStamp: timestamp, KeySize: uint32(len(key)), ValueSize: uint32(len(value))}
+
 	// mark as tombstone
 	h.MarkTombStone()
 	r := Record{Header: h, Key: key, Value: "", RecordSize: headerSize + h.KeySize + h.ValueSize}
+	r.Header.CheckSum = r.CalculateCheckSum()
 
 	buf := new(bytes.Buffer)
 	err := r.EncodeKV(buf)
@@ -257,4 +271,15 @@ func (d *DiskStore) initKeyDir(existingFile string) error {
 		fmt.Printf("loaded key=%s, value=%s\n", key, value)
 	}
 	return nil
+}
+
+// returns a list of the current keys
+func (d *DiskStore) ListKeys() []string {
+	result := make([]string, 0, len(d.keyDir))
+
+	for k := range d.keyDir {
+		result = append(result, k)
+	}
+
+	return result
 }

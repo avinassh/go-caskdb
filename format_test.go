@@ -8,9 +8,9 @@ import (
 
 func Test_encodeHeader(t *testing.T) {
 	tests := []*Header{
-		{10, 10, 10, 1},
-		{0, 0, 0, 0},
-		{10000, 10000, 10000, 1},
+		{10, 1, 10, 10, 10},
+		{0, 0, 0, 0, 0},
+		{10000, 1, 10000, 10000, 1000},
 	}
 	for _, tt := range tests {
 		newBuf := new(bytes.Buffer)
