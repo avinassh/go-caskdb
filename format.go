@@ -144,17 +144,6 @@ func NewHeader(buf []byte) (*Header, error) {
 	return h, nil
 }
 
-func (h *Header) CalculateCheckSum(key, value string) uint32 {
-	// encode header
-	headerBuf := new(bytes.Buffer)
-	h.EncodeHeader(headerBuf)
-	// encode kv
-	kvBuf := append([]byte(key), []byte(value)...)
-
-	buf := append(headerBuf.Bytes()[4:], kvBuf...)
-	return crc32.ChecksumIEEE(buf)
-}
-
 func (r *Record) EncodeKV(buf *bytes.Buffer) error {
 	r.Header.EncodeHeader(buf)
 	buf.WriteString(r.Key)
@@ -172,6 +161,21 @@ func (r *Record) DecodeKV(buf []byte) error {
 
 func (r *Record) Size() uint32 {
 	return r.RecordSize
+}
+
+func (r *Record) CalculateCheckSum(key, value string) uint32 {
+	// encode header
+	headerBuf := new(bytes.Buffer)
+	binary.Write(headerBuf, binary.LittleEndian, &r.Header.Meta)
+	binary.Write(headerBuf, binary.LittleEndian, &r.Header.TimeStamp)
+	binary.Write(headerBuf, binary.LittleEndian, &r.Header.KeySize)
+	binary.Write(headerBuf, binary.LittleEndian, &r.Header.ValueSize)
+
+	// encode kv
+	kvBuf := append([]byte(key), []byte(value)...)
+
+	buf := append(headerBuf.Bytes(), kvBuf...)
+	return crc32.ChecksumIEEE(buf)
 }
 
 func (r *Record) VerifyCheckSum(data []byte) bool {
