@@ -163,7 +163,7 @@ func (r *Record) Size() uint32 {
 	return r.RecordSize
 }
 
-func (r *Record) CalculateCheckSum(key, value string) uint32 {
+func (r *Record) CalculateCheckSum() uint32 {
 	// encode header
 	headerBuf := new(bytes.Buffer)
 	binary.Write(headerBuf, binary.LittleEndian, &r.Header.Meta)
@@ -172,7 +172,7 @@ func (r *Record) CalculateCheckSum(key, value string) uint32 {
 	binary.Write(headerBuf, binary.LittleEndian, &r.Header.ValueSize)
 
 	// encode kv
-	kvBuf := append([]byte(key), []byte(value)...)
+	kvBuf := append([]byte(r.Key), []byte(r.Value)...)
 
 	buf := append(headerBuf.Bytes(), kvBuf...)
 	return crc32.ChecksumIEEE(buf)
