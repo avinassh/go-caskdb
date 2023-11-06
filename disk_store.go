@@ -184,7 +184,7 @@ func (d *DiskStore) Delete(key string) error {
 
 	// mark as tombstone
 	h.MarkTombStone()
-	r := Record{Header: h, Key: key, Value: "", RecordSize: headerSize + h.KeySize + h.ValueSize}
+	r := Record{Header: h, Key: key, Value: value, RecordSize: headerSize + h.KeySize + h.ValueSize}
 	r.Header.CheckSum = r.CalculateCheckSum()
 
 	buf := new(bytes.Buffer)
