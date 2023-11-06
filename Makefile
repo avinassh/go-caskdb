@@ -4,9 +4,6 @@ build:
 test:
 	go test -v ./... --cover
 
-bench:
-	go test -bench=. -run=^# -benchtime=20x 
-
 lint:
 	go fmt	./...
 
