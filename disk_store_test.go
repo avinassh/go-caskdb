@@ -3,6 +3,7 @@ package caskdb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -257,5 +258,52 @@ func TestDiskStore_InValidCheckSum(t *testing.T) {
 		if expectedCheckSum == actualCheckSum {
 			t.Error("checksum matched: data is supposed to be corrupted!")
 		}
+	}
+}
+
+func BenchmarkSetOperation(b *testing.B) {
+	store, _ := NewDiskStore("test.db")
+	defer store.Close()
+
+	table := map[string]string{
+		"crime and punishment": "dostoevsky",
+		"anna karenina":        "tolstoy",
+		"war and peace":        "tolstoy",
+		"hamlet":               "shakespeare",
+		"othello":              "shakespeare",
+		"brave new world":      "huxley",
+		"dune":                 "frank herbert",
+	}
+
+	for k, v := range table {
+		b.Run(fmt.Sprintf("key:%s", k), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				store.Set(k, v)
+			}
+		})
+	}
+}
+
+func BenchmarkGetOperation(b *testing.B) {
+	store, _ := NewDiskStore("test.db")
+	defer store.Close()
+	defer os.Remove("test.db")
+
+	table := map[string]string{
+		"crime and punishment": "dostoevsky",
+		"anna karenina":        "tolstoy",
+		"war and peace":        "tolstoy",
+		"hamlet":               "shakespeare",
+		"othello":              "shakespeare",
+		"brave new world":      "huxley",
+		"dune":                 "frank herbert",
+	}
+
+	for k := range table {
+		b.Run(fmt.Sprintf("key:%s", k), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				store.Get(k)
+			}
+		})
 	}
 }

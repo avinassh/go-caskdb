@@ -3,7 +3,6 @@ package caskdb
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -268,7 +267,6 @@ func (d *DiskStore) initKeyDir(existingFile string) error {
 		totalSize := headerSize + h.KeySize + h.ValueSize
 		d.keyDir[string(key)] = NewKeyEntry(h.TimeStamp, uint32(d.writePosition), totalSize)
 		d.writePosition += int(totalSize)
-		fmt.Printf("loaded key=%s, value=%s\n", key, value)
 	}
 	return nil
 }
