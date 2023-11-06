@@ -172,7 +172,7 @@ func TestDiskStore_ValidCheckSum(t *testing.T) {
 		}
 
 		expectedCheckSum := tt.Header.CheckSum
-		actualCheckSum := result.Header.CheckSum
+		actualCheckSum := result.CalculateCheckSum()
 
 		if expectedCheckSum != actualCheckSum {
 			t.Errorf("invalid checksum: Got: %d, Want: %d", actualCheckSum, expectedCheckSum)
@@ -256,7 +256,7 @@ func TestDiskStore_InValidCheckSum(t *testing.T) {
 		actualCheckSum := result.CalculateCheckSum()
 
 		if expectedCheckSum == actualCheckSum {
-			t.Error("checksum matched: data is supposed to be corrupted!")
+			t.Errorf("checksum matched, data is supposed to be corrupted: Got: %d, Want: %d", actualCheckSum, expectedCheckSum)
 		}
 	}
 }
