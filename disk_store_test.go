@@ -225,7 +225,7 @@ func TestDiskStore_InValidCheckSum(t *testing.T) {
 
 		// corrupt the record by overriding few bytes with corruptedBytes
 		corruptedBytes := []byte{12, 90, 87, 101}
-		start, end := 17, 21
+		start, end := len(kvRecord)-4, len(kvRecord)-1
 		for i := start; i < end; i++ {
 			kvRecord[i] = corruptedBytes[i-start]
 		}
