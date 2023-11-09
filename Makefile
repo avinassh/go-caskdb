@@ -2,7 +2,7 @@ build:
 	go build
 
 test:
-	go test -v ./...
+	go test -v ./... --cover
 
 lint:
 	go fmt	./...
