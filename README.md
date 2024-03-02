@@ -30,6 +30,13 @@ Most of the following limitations are of CaskDB. However, there are some due to 
 - CaskDB requires keeping all the keys in the internal memory. With a lot of keys, RAM usage will be high
 - Slow startup time since it needs to load all the keys in memory
 
+## Community
+
+[![CaskDB Discord](https://img.shields.io/discord/851000331721900053)](https://discord.gg/HzthUYkrPp)
+
+Consider joining the Discord community to build and learn KV Store with peers.
+
+
 ## Dependencies
 CaskDB does not require any external libraries to run. Go standard library is enough.
 
